@@ -52,6 +52,7 @@ CATEGORIES = [
     "Lavanderías",
     "Florerías",
     "Panaderías",
+    "Inmobiliarias",
     "Otros",
 ]
 

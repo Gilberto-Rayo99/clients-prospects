@@ -25,6 +25,7 @@ build/
 outputs/landings/*.html
 outputs/excel/*.xlsx
 outputs/pdf/*.pdf
+outputs/clients.json
 !outputs/landings/.gitkeep
 !outputs/excel/.gitkeep
 !outputs/pdf/.gitkeep

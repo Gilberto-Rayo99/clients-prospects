@@ -40,6 +40,19 @@ COLUMNS = [
     ("Link Maps", 22),
     ("Link Landing", 28),
     ("Estado", 22),
+    ("Próximo contacto", 18),
+    ("Precio cotizado (MXN)", 18),
+    ("Notas", 50),
+    ("Fecha guardado", 18),
+]
+
+EXTENDED_STATUSES = [
+    "Pendiente",
+    "Contactado",
+    "Propuesta enviada",
+    "Negociación",
+    "Cerrado",
+    "Descartado",
 ]
 
 
@@ -87,7 +100,11 @@ def export_to_excel(prospects: list[dict]) -> str:
             "Sí" if p.get("website") else "No",
             p.get("maps_url") or "",
             p.get("landing_path") or "",
-            "Pendiente",
+            p.get("estado") or "Pendiente",
+            p.get("fecha_proximo_contacto") or "",
+            p.get("precio_cotizado") or "",
+            p.get("notas") or "",
+            (p.get("fecha_guardado") or "")[:10],
         ]
 
         fill = None
@@ -120,7 +137,7 @@ def export_to_excel(prospects: list[dict]) -> str:
     # Dropdown de Estado en la columna N
     dv = DataValidation(
         type="list",
-        formula1=f'"{",".join(config.STATUS_OPTIONS)}"',
+        formula1=f'"{",".join(EXTENDED_STATUSES)}"',
         allow_blank=True,
         showDropDown=False,  # showDropDown=False = sí muestra (es contraintuitivo en openpyxl)
     )
