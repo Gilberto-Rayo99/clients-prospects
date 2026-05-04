@@ -362,8 +362,38 @@ with tab_search:
 
         for i, p in enumerate(iter_prospects):
             saved = clients_store.exists_by_place_id(p.get("place_id"))
+            place_id_top = p.get("place_id", f"idx_{i}")
             badge = " · ✅ guardado" if saved else ""
-            with st.expander(f"{_score_color(p['score'])} **{p['name']}** — Score {p['score']}/10{badge}"):
+
+            # ===== Acciones rápidas (sin abrir el expander) =====
+            qa_l, qa_r = st.columns([4, 1])
+            with qa_l:
+                st.markdown(
+                    f"{_score_color(p['score'])} **{p['name']}** — "
+                    f"Score {p['score']}/10 · {p.get('category', '')}{badge}"
+                )
+            with qa_r:
+                if saved:
+                    if st.button("📂 Abrir cliente", key=f"qopen_{place_id_top}",
+                                 use_container_width=True):
+                        existing = next(
+                            (c for c in clients_store.list_all()
+                             if c.get("place_id") == p.get("place_id")),
+                            None,
+                        )
+                        if existing:
+                            st.session_state["editing_client_id"] = existing["id"]
+                            st.toast("Abriendo en Mis clientes")
+                            _refresh()
+                else:
+                    if st.button("💾 Guardar", key=f"qsave_{place_id_top}",
+                                 type="primary", use_container_width=True):
+                        cli = clients_store.save_from_business(p)
+                        st.session_state["editing_client_id"] = cli["id"]
+                        st.toast(f"✅ {cli['name']} guardado")
+                        _refresh()
+
+            with st.expander(f"Ver detalles · {p['name']}"):
                 col_l, col_r = st.columns([2, 1])
                 with col_l:
                     st.markdown(f"**Dirección:** {p.get('address', '—')}")
