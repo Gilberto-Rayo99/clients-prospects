@@ -279,26 +279,88 @@ with tab_search:
 
         st.markdown("---")
 
-        # Tabla
-        rows = []
-        for p in prospects:
-            saved = clients_store.exists_by_place_id(p.get("place_id"))
-            rows.append({
-                "": _score_color(p["score"]),
-                "Score": p["score"],
-                "Nombre": p["name"],
-                "Categoría": p.get("category", ""),
-                "⭐": p.get("rating") or "—",
-                "Reseñas": p.get("reviews_count") or 0,
-                "Web": "❌" if not p.get("website") else "⚠️",
-                "Email": "✅" if p.get("email") else "—",
-                "Canal": f"{CHANNEL_ICON.get(p['contact_channel'], '?')} {p['contact_channel']}",
-                "Guardado": "✅" if saved else "—",
-            })
-        st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+        # ===== Filtros locales (afectan tabla + detalles) =====
+        with st.container(border=True):
+            st.markdown("**🔎 Filtrar resultados**")
+            f1, f2, f3 = st.columns([2, 1, 1])
+            with f1:
+                search_text = st.text_input(
+                    "Buscar por nombre o categoría",
+                    value="",
+                    key="local_search",
+                    placeholder="taquería, dental, etc.",
+                )
+            with f2:
+                min_score = st.slider("Score mínimo", 1, 10, 1, key="local_min_score")
+            with f3:
+                hide_saved = st.checkbox(
+                    "Ocultar guardados",
+                    value=False,
+                    key="local_hide_saved",
+                )
+            f4, f5, f6 = st.columns(3)
+            with f4:
+                only_with_email = st.checkbox("Solo con email", key="local_email")
+            with f5:
+                only_with_phone = st.checkbox("Solo con teléfono", key="local_phone")
+            with f6:
+                only_no_web = st.checkbox("Solo sin web", key="local_no_web")
 
-        st.markdown("### Detalles")
-        for i, p in enumerate(prospects):
+        # Aplicar filtros locales
+        def _matches(p: dict) -> bool:
+            if min_score and (p.get("score") or 0) < min_score:
+                return False
+            if hide_saved and clients_store.exists_by_place_id(p.get("place_id")):
+                return False
+            if only_with_email and not p.get("email"):
+                return False
+            if only_with_phone and not p.get("phone"):
+                return False
+            if only_no_web and p.get("website"):
+                return False
+            if search_text:
+                q = search_text.lower().strip()
+                hay = " ".join([
+                    p.get("name", ""), p.get("category", ""),
+                    p.get("address", ""),
+                ]).lower()
+                if q not in hay:
+                    return False
+            return True
+
+        filtered_prospects = [p for p in prospects if _matches(p)]
+        if len(filtered_prospects) != len(prospects):
+            st.caption(f"Mostrando **{len(filtered_prospects)}** de {len(prospects)} prospectos")
+
+        if not filtered_prospects:
+            st.warning("Ningún prospecto coincide con los filtros. Ajusta los criterios arriba.")
+        else:
+            # Tabla
+            rows = []
+            for p in filtered_prospects:
+                saved = clients_store.exists_by_place_id(p.get("place_id"))
+                rows.append({
+                    "": _score_color(p["score"]),
+                    "Score": p["score"],
+                    "Nombre": p["name"],
+                    "Categoría": p.get("category", ""),
+                    "⭐": p.get("rating") or "—",
+                    "Reseñas": p.get("reviews_count") or 0,
+                    "Web": "❌" if not p.get("website") else "⚠️",
+                    "Email": "✅" if p.get("email") else "—",
+                    "Canal": f"{CHANNEL_ICON.get(p['contact_channel'], '?')} {p['contact_channel']}",
+                    "Guardado": "✅" if saved else "—",
+                })
+            st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+
+            st.markdown("### Detalles")
+            iter_prospects = filtered_prospects
+
+        # Si está vacío salimos sin renderizar detalles
+        if not filtered_prospects:
+            iter_prospects = []
+
+        for i, p in enumerate(iter_prospects):
             saved = clients_store.exists_by_place_id(p.get("place_id"))
             badge = " · ✅ guardado" if saved else ""
             with st.expander(f"{_score_color(p['score'])} **{p['name']}** — Score {p['score']}/10{badge}"):
