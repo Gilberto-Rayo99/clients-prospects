@@ -353,6 +353,89 @@ with tab_search:
                 })
             st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
 
+            # ===== Guardado en lote =====
+            no_guardados = [
+                p for p in filtered_prospects
+                if not clients_store.exists_by_place_id(p.get("place_id"))
+            ]
+            if no_guardados:
+                with st.container(border=True):
+                    st.markdown(f"**📥 Guardar en lote** _(de los {len(no_guardados)} no guardados)_")
+
+                    bl_col1, bl_col2, bl_col3 = st.columns(3)
+
+                    # Botón 1: todos los visibles no guardados
+                    with bl_col1:
+                        if st.button(
+                            f"💾 Todos los visibles ({len(no_guardados)})",
+                            key="bulk_all_visible",
+                            use_container_width=True,
+                            type="primary",
+                        ):
+                            count = 0
+                            for p in no_guardados:
+                                clients_store.save_from_business(p)
+                                count += 1
+                            st.toast(f"✅ {count} clientes guardados")
+                            _refresh()
+
+                    # Botón 2: solo gold + silver (top tier)
+                    top_tier = [
+                        p for p in no_guardados
+                        if config.CATEGORY_TIERS.get(p.get("category", "Otros"))
+                        in ("gold", "silver")
+                    ]
+                    with bl_col2:
+                        if st.button(
+                            f"🥇 Solo Top tier ({len(top_tier)})",
+                            key="bulk_top_tier",
+                            use_container_width=True,
+                            disabled=not top_tier,
+                        ):
+                            for p in top_tier:
+                                clients_store.save_from_business(p)
+                            st.toast(f"✅ {len(top_tier)} clientes top guardados")
+                            _refresh()
+
+                    # Botón 3: solo sin web
+                    no_web = [p for p in no_guardados if not p.get("website")]
+                    with bl_col3:
+                        if st.button(
+                            f"🌐 Solo sin web ({len(no_web)})",
+                            key="bulk_no_web",
+                            use_container_width=True,
+                            disabled=not no_web,
+                        ):
+                            for p in no_web:
+                                clients_store.save_from_business(p)
+                            st.toast(f"✅ {len(no_web)} sin web guardados")
+                            _refresh()
+
+                    # Botón 4: por score mínimo (slider + botón)
+                    bl_col4, bl_col5 = st.columns([2, 1])
+                    with bl_col4:
+                        bulk_score = st.slider(
+                            "Score mínimo para guardar",
+                            min_value=1, max_value=10, value=8,
+                            key="bulk_min_score",
+                        )
+                    with bl_col5:
+                        by_score = [
+                            p for p in no_guardados
+                            if (p.get("score") or 0) >= bulk_score
+                        ]
+                        st.write("")  # alinear vertical
+                        if st.button(
+                            f"🎯 Score ≥ {bulk_score} ({len(by_score)})",
+                            key="bulk_by_score",
+                            use_container_width=True,
+                            disabled=not by_score,
+                        ):
+                            for p in by_score:
+                                clients_store.save_from_business(p)
+                            st.toast(f"✅ {len(by_score)} con score ≥ {bulk_score} guardados")
+                            _refresh()
+
             st.markdown("### Detalles")
             iter_prospects = filtered_prospects
 
