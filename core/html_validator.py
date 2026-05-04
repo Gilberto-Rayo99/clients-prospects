@@ -54,10 +54,9 @@ def validate_html(html: str) -> tuple[bool, str]:
         # Solo warning, no bloqueamos
         return True, "OK (recomendación: incluye `<!DOCTYPE html>` al inicio)."
 
-    # 6) Detectar etiquetas claramente desbalanceadas (cuenta básica)
-    open_html = len(re.findall(r"<html\b", lower))
-    close_html = lower.count("</html>")
-    if open_html != close_html:
-        return False, "Las etiquetas <html> no están balanceadas."
+    # Nota: no validamos balance estricto de <html>...</html> a propósito.
+    # Los archivos descargados de claude.ai vienen envueltos en un visor que
+    # contiene el HTML real escapado dentro de un string (\n, \"), lo que
+    # produce más ocurrencias de "<html" que de "</html>" sin que sea un error.
 
     return True, "HTML válido."
