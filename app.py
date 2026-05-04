@@ -396,18 +396,46 @@ with tab_clients:
                         st.code(build_short_summary(cli), language="json")
 
                 with tab_html:
-                    st.caption("Pega aquí el HTML completo que te devolvió Claude (desde `<!DOCTYPE html>` hasta `</html>`).")
-                    pasted = st.text_area(
-                        "HTML",
-                        value="",
-                        height=320,
-                        key=f"paste_{sel_id}",
-                        placeholder="<!DOCTYPE html>\n<html lang=\"es\">\n  ...\n</html>",
+                    st.caption("Sube el archivo `.html` standalone que descargaste de claude.ai. Si prefieres, también puedes pegar el HTML manualmente más abajo.")
+
+                    uploaded = st.file_uploader(
+                        "Subir archivo HTML",
+                        type=["html", "htm"],
+                        key=f"upload_{sel_id}",
+                        accept_multiple_files=False,
+                        help="Arrastra el archivo o haz clic para seleccionarlo.",
                     )
-                    col_v1, col_v2 = st.columns(2)
-                    with col_v1:
-                        if st.button("✅ Validar y guardar", key=f"savehtml_{sel_id}",
-                                     type="primary", use_container_width=True):
+
+                    if uploaded is not None:
+                        try:
+                            html_content = uploaded.read().decode("utf-8", errors="replace")
+                        except Exception as e:
+                            st.error(f"No pude leer el archivo: {e}")
+                            html_content = ""
+
+                        if html_content:
+                            ok, msg = validate_html(html_content)
+                            st.caption(f"Archivo: **{uploaded.name}** · {len(html_content):,} caracteres")
+                            if ok:
+                                st.success(f"✅ {msg}")
+                                if st.button("💾 Guardar landing", key=f"saveupload_{sel_id}",
+                                             type="primary", use_container_width=True):
+                                    clients_store.save_landing_html(sel_id, html_content)
+                                    st.success("Landing guardada.")
+                                    _refresh()
+                            else:
+                                st.error(f"❌ {msg}")
+
+                    with st.expander("✏️ Pegar HTML manualmente (alternativa)"):
+                        pasted = st.text_area(
+                            "HTML",
+                            value="",
+                            height=240,
+                            key=f"paste_{sel_id}",
+                            placeholder="<!DOCTYPE html>\n<html lang=\"es\">\n  ...\n</html>",
+                        )
+                        if st.button("✅ Validar y guardar (pegado)", key=f"savehtml_{sel_id}",
+                                     use_container_width=True):
                             ok, msg = validate_html(pasted)
                             if not ok:
                                 st.error(f"❌ {msg}")
@@ -415,8 +443,10 @@ with tab_clients:
                                 clients_store.save_landing_html(sel_id, pasted)
                                 st.success(f"✅ {msg} Landing guardada.")
                                 _refresh()
-                    with col_v2:
-                        if cli.get("landing_html") and st.button(
+
+                    if cli.get("landing_html"):
+                        st.markdown("---")
+                        if st.button(
                             "🗑️ Eliminar landing actual",
                             key=f"dellanding_{sel_id}",
                             use_container_width=True,
