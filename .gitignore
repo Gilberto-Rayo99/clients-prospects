@@ -31,6 +31,12 @@ outputs/.cache_search/
 !outputs/excel/.gitkeep
 !outputs/pdf/.gitkeep
 
+# ===== Build / .exe =====
+build/
+dist/
+*.spec.bak
+Tacos*.html
+
 # ===== IDE =====
 .vscode/
 .idea/

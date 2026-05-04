@@ -15,7 +15,7 @@ from core.enrich import enrich_contact
 from core.html_validator import validate_html
 from core.landing import generate_landing
 from core.landing_prompt import build_landing_prompt, build_short_summary
-from core.score import calculate_score
+from core.score import calculate_score, calculate_score_breakdown, format_breakdown
 from core.search import search_businesses
 from export.excel import export_to_excel
 from export.pdf_proposal import generate_pdf_proposal
@@ -50,13 +50,52 @@ def _process_prospects(prospects: list[dict]) -> list[dict]:
     out = []
     for b in prospects:
         b = enrich_contact(b)
-        b["score"] = calculate_score(b)
+        score, breakdown = calculate_score_breakdown(b)
+        b["score"] = score
+        b["score_breakdown"] = breakdown
         contact = suggest_contact_channel(b)
         b["contact_channel"] = contact["channel"]
         b["contact_value"] = contact["value"]
         out.append(b)
     out.sort(key=lambda x: x["score"], reverse=True)
     return out
+
+
+def _apply_smart_filter(prospects: list[dict], smart_filter: str) -> list[dict]:
+    """Aplica el preset del filtro inteligente."""
+    if smart_filter == "all":
+        return prospects
+    if smart_filter == "top":
+        return [
+            p for p in prospects
+            if config.CATEGORY_TIERS.get(p.get("category", "Otros")) in ("gold", "silver")
+            and (p.get("score") or 0) >= 7
+            and (p.get("rating") or 0) >= 4.0
+        ]
+    if smart_filter == "premium":
+        return [
+            p for p in prospects
+            if config.CATEGORY_TIERS.get(p.get("category", "Otros")) in ("gold", "silver")
+        ]
+    if smart_filter == "urgent":
+        return [
+            p for p in prospects
+            if not p.get("website") or p.get("is_outdated_web")
+            or (p.get("website") and config.CATEGORY_TIERS.get(p.get("category", "Otros")) != "low")
+            and not _looks_like_real_modern_web(p)
+        ]
+    return prospects
+
+
+def _looks_like_real_modern_web(p: dict) -> bool:
+    """Heurística: web propia y no marcada como desactualizada."""
+    url = p.get("website")
+    if not url:
+        return False
+    if p.get("is_outdated_web"):
+        return False
+    bad = ("facebook.com", "instagram.com", "wix.com", "blogspot.com")
+    return not any(b in url.lower() for b in bad)
 
 
 CHANNEL_ICON = {
@@ -107,7 +146,41 @@ with st.sidebar:
 
     zone = st.text_input("Zona / colonia", value="Coyoacán, CDMX")
     radius_km = st.slider("Radio (km)", 1, 30, 5)
-    category = st.selectbox("Categoría", config.CATEGORIES)
+
+    # Filtro inteligente arriba (preset)
+    smart_filter_label = st.radio(
+        "🎯 Filtro inteligente",
+        options=list(config.SMART_FILTERS.values()),
+        index=1,  # Top prospects por defecto
+        help=(
+            "**Top prospects**: solo categorías rentables (gold/silver) "
+            "con score ≥7 y rating ≥4.0\n\n"
+            "**Alta cotización**: solo categorías gold + silver "
+            "(consultorios, veterinarias, inmobiliarias, estéticas, gimnasios…)\n\n"
+            "**Urgentes**: negocios con web fea o sin web — venta más rápida"
+        ),
+    )
+    smart_filter_key = next(
+        k for k, v in config.SMART_FILTERS.items() if v == smart_filter_label
+    )
+
+    # Categoría: lista normal + opción "todas las gold/silver"
+    cat_options = config.CATEGORIES.copy()
+    if smart_filter_key in ("top", "premium"):
+        # Mostrar tier al lado de cada categoría
+        cat_options = [
+            f"{c}  {config.TIER_LABEL.get(config.CATEGORY_TIERS.get(c, 'bronze'), '')}"
+            for c in config.CATEGORIES
+        ]
+        cat_options.insert(0, "— Todas las recomendadas —")
+        cat_label = st.selectbox("Categoría", cat_options)
+        if cat_label.startswith("—"):
+            category = None  # se interpreta como "todas las del tier"
+        else:
+            # quitar el sufijo de tier
+            category = cat_label.split("  ")[0]
+    else:
+        category = st.selectbox("Categoría", config.CATEGORIES)
 
     web_filter_label = st.radio(
         "Filtro web",
@@ -134,11 +207,33 @@ if clear_btn:
 if search_btn:
     with st.spinner("Buscando y enriqueciendo negocios..."):
         try:
-            raw = search_businesses(zone, radius_km, category, web_filter_key)
-            st.session_state["prospects"] = _process_prospects(raw)
+            # Si category es None → buscar en todas las categorías recomendadas
+            if category is None:
+                target_cats = [
+                    c for c in config.CATEGORIES
+                    if config.CATEGORY_TIERS.get(c) in ("gold", "silver")
+                ]
+                raw = []
+                seen_ids = set()
+                for cat in target_cats:
+                    results = search_businesses(zone, radius_km, cat, web_filter_key)
+                    for r in results:
+                        pid = r.get("place_id")
+                        if pid and pid not in seen_ids:
+                            seen_ids.add(pid)
+                            raw.append(r)
+                cat_label_for_state = "Todas las recomendadas"
+            else:
+                raw = search_businesses(zone, radius_km, category, web_filter_key)
+                cat_label_for_state = category
+
+            processed = _process_prospects(raw)
+            processed = _apply_smart_filter(processed, smart_filter_key)
+            st.session_state["prospects"] = processed
             st.session_state["last_search"] = {
                 "zone": zone, "radius_km": radius_km,
-                "category": category, "filter": web_filter_label,
+                "category": cat_label_for_state, "filter": web_filter_label,
+                "smart": smart_filter_label,
             }
             st.session_state["preview_landing"] = None
         except Exception as e:
@@ -217,9 +312,16 @@ with tab_search:
                         if links:
                             st.markdown(f"**Redes:** {links}")
                     st.markdown(f"**Rating:** {p.get('rating') or '—'} ⭐ ({p.get('reviews_count', 0)} reseñas)")
+                    cat_tier = config.CATEGORY_TIERS.get(p.get("category", "Otros"), "bronze")
+                    st.markdown(f"**Categoría:** {p.get('category')} {config.TIER_LABEL.get(cat_tier, '')}")
                     st.markdown(f"**Canal sugerido:** {CHANNEL_ICON.get(p['contact_channel'], '')} `{p['contact_channel']}` → {p['contact_value']}")
                     if p.get("maps_url"):
                         st.markdown(f"[📍 Ver en Google Maps]({p['maps_url']})")
+
+                    # Breakdown del score
+                    if p.get("score_breakdown"):
+                        with st.expander(f"🧮 Cómo se calculó el score ({p['score']}/10)"):
+                            st.markdown(format_breakdown(p["score_breakdown"]))
 
                 with col_r:
                     place_id = p.get("place_id", f"idx_{i}")

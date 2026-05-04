@@ -56,6 +56,49 @@ CATEGORIES = [
     "Otros",
 ]
 
+# Tier de categorías por rentabilidad como prospecto (ROI de la web).
+# - gold: ticket alto, cliente potencial paga $5-15k por landing fácil
+# - silver: ticket medio-alto, vendible con buen pitch
+# - bronze: ticket medio, urgencia menor
+# - low: ticket bajo, web justifica menos su costo
+CATEGORY_TIERS: dict[str, str] = {
+    "Consultorios dentales":  "gold",
+    "Veterinarias":           "gold",
+    "Inmobiliarias":          "gold",
+    "Estéticas y barberías":  "silver",
+    "Talleres mecánicos":     "silver",
+    "Gimnasios":              "silver",
+    "Restaurantes":           "bronze",
+    "Cafeterías":             "bronze",
+    "Florerías":              "bronze",
+    "Panaderías":             "bronze",
+    "Tiendas de abarrotes":   "low",
+    "Lavanderías":            "low",
+    "Otros":                  "bronze",
+}
+
+TIER_BONUS: dict[str, int] = {
+    "gold":   2,
+    "silver": 1,
+    "bronze": 0,
+    "low":   -1,
+}
+
+TIER_LABEL: dict[str, str] = {
+    "gold":   "🥇 Top",
+    "silver": "🥈 Bueno",
+    "bronze": "🥉 Medio",
+    "low":    "⛔ Bajo",
+}
+
+# Presets del filtro inteligente
+SMART_FILTERS = {
+    "all":       "Todos",
+    "top":       "🎯 Top prospects (recomendado)",
+    "premium":   "💰 Alta cotización (sólo gold/silver)",
+    "urgent":    "🔥 Urgentes (web fea o sin web)",
+}
+
 FILTER_OPTIONS = {
     "no_web": "Sin página web",
     "outdated": "Web desactualizada",
