@@ -24,11 +24,13 @@ def _is_real_website(url: str | None) -> bool:
 def _is_outdated_web(business: dict) -> bool:
     """Heurística de web desactualizada.
 
-    En esta etapa MVP sólo marcamos como desactualizada cuando el "sitio"
-    es realmente una landing en Wix/Blogspot/Facebook/etc. (todo lo que
-    `_is_real_website` rechaza). Cuando agreguemos scraping real,
-    esta función mirará el copyright en el HTML.
+    Tres caminos:
+      1. El scraper detectó copyright viejo (`is_outdated_web=True`).
+      2. El "sitio" es realmente una landing Wix/Blogspot/Facebook/etc.
+      3. (default) no es desactualizada.
     """
+    if business.get("is_outdated_web"):
+        return True
     url = business.get("website")
     if not url:
         return False

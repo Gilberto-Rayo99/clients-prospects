@@ -381,6 +381,10 @@ def search_businesses(
         _cache_set(cache_key, real)
 
     # ===== Filtro de web aplicado al final =====
+    # Nota: el filtro "outdated" basado en copyright no se puede aplicar aquí
+    # porque eso lo determina el scraping de enrich.py (más caro). El filtro
+    # "outdated" en este punto solo cubre dominios falsos (Wix, FB, etc.);
+    # los detectados por copyright se filtran en la UI tras el enrich.
     if web_filter == "no_web":
         real = [b for b in real if not _is_real_website(b.get("website"))]
     elif web_filter == "outdated":
