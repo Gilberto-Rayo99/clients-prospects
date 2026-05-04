@@ -12,6 +12,8 @@ from core.enrich import enrich_contact
 from core.landing import generate_landing
 from core.score import calculate_score
 from core.search import search_businesses
+from export.excel import export_to_excel
+from export.pdf_proposal import generate_pdf_proposal
 
 config.setup_logging()
 logger = logging.getLogger(__name__)
@@ -108,6 +110,11 @@ with st.sidebar:
     search_btn = st.button("🔍 Buscar prospectos", use_container_width=True, type="primary")
     clear_btn = st.button("🧹 Limpiar resultados", use_container_width=True)
 
+    st.markdown("---")
+    st.subheader("Exportar")
+    export_excel_btn = st.button("📊 Exportar a Excel", use_container_width=True)
+    export_all_pdfs_btn = st.button("📄 Generar todos los PDFs", use_container_width=True)
+
 
 # ============================================================
 # Main
@@ -141,6 +148,41 @@ prospects: list[dict] = st.session_state["prospects"]
 if not prospects:
     st.info("Configura los parámetros en el sidebar y pulsa **Buscar prospectos** para empezar.")
     st.stop()
+
+# ===== Acciones globales de export =====
+if export_excel_btn:
+    with st.spinner("Generando Excel..."):
+        try:
+            path = export_to_excel(prospects)
+            with open(path, "rb") as f:
+                data = f.read()
+            st.success(f"✅ Excel generado: `{path}`")
+            st.download_button(
+                "⬇️ Descargar Excel",
+                data=data,
+                file_name=path.split("\\")[-1].split("/")[-1],
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        except Exception as e:
+            logger.exception("Falló export Excel")
+            st.error(f"Error al exportar Excel: {e}")
+
+if export_all_pdfs_btn:
+    progress = st.progress(0, text="Generando PDFs...")
+    paths = []
+    errors = 0
+    for i, p in enumerate(prospects, start=1):
+        try:
+            paths.append(generate_pdf_proposal(p, p.get("landing_path")))
+        except Exception as e:
+            logger.exception("Falló PDF para %s", p.get("name"))
+            errors += 1
+        progress.progress(i / len(prospects), text=f"Generando PDFs... ({i}/{len(prospects)})")
+    progress.empty()
+    if paths:
+        st.success(f"✅ {len(paths)} PDFs generados en `{config.PDF_DIR}`" + (f" ({errors} fallaron)" if errors else ""))
+    else:
+        st.error("No se generó ningún PDF")
 
 # ===== Métricas =====
 total = len(prospects)
@@ -246,8 +288,32 @@ for i, p in enumerate(prospects):
                     st.session_state["preview_landing"] = (p["name"], html)
                     st.rerun()
 
-            st.button("📄 Generar PDF", key=f"pdf_{place_id}", disabled=True,
-                      help="Próxima etapa", use_container_width=True)
+            if st.button("📄 Generar PDF", key=f"pdf_{place_id}", use_container_width=True):
+                with st.spinner(f"Generando PDF para {p['name']}..."):
+                    try:
+                        pdf_path = generate_pdf_proposal(p, p.get("landing_path"))
+                        idx = _find_prospect_index(place_id)
+                        if idx is not None:
+                            st.session_state["prospects"][idx]["pdf_path"] = pdf_path
+                        st.success(f"✅ PDF guardado en `{pdf_path}`")
+                    except Exception as e:
+                        logger.exception("Falló PDF")
+                        st.error(f"Error: {e}")
+
+            if p.get("pdf_path"):
+                from pathlib import Path as _Path
+                try:
+                    with open(p["pdf_path"], "rb") as f:
+                        st.download_button(
+                            "⬇️ Descargar PDF",
+                            data=f.read(),
+                            file_name=_Path(p["pdf_path"]).name,
+                            mime="application/pdf",
+                            key=f"dl_pdf_{place_id}",
+                            use_container_width=True,
+                        )
+                except FileNotFoundError:
+                    pass
 
 st.markdown("---")
-st.caption("Etapa 2 — Búsqueda + enrich + landing. Próximamente: exports Excel/PDF.")
+st.caption(f"Prospector Web · {config.AGENCY_NAME} · MVP completo")

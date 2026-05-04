@@ -2,15 +2,16 @@
 
 Sistema de prospección de clientes para agencia de desarrollo web. Busca negocios locales en Google Maps que no tienen página web (o la tienen desactualizada), enriquece sus datos de contacto, genera una landing de muestra con Claude, y exporta a Excel o PDF imprimible para presentar la propuesta al cliente.
 
-## Etapa actual: MVP (Etapa 1)
+## Estado: MVP completo
 
-- ✅ Búsqueda de negocios (con datos mock para probar la UI sin API keys)
+- ✅ Búsqueda de negocios (mock + Google Places listo)
 - ✅ Scoring de oportunidad 1–10
-- ✅ Sugerencia automática de canal de contacto (email / WhatsApp / Facebook / visita)
-- ✅ Tabla y detalles en Streamlit
-- 🔜 Enriquecimiento de email (Outscraper / Hunter)
-- 🔜 Generación de landing con Claude
-- 🔜 Export Excel + PDF
+- ✅ Canal de contacto automático (email / WhatsApp / Facebook / visita)
+- ✅ Enriquecimiento de email (scrape + Outscraper + Hunter, todos con mock)
+- ✅ Generación de landing con Claude (mock con 11 paletas por categoría)
+- ✅ Export Excel con dropdown de estado y colores por score
+- ✅ PDF imprimible 1 página A4 para visita presencial
+- ✅ Vista previa de landing embebida en la app
 
 ## Requisitos
 
@@ -55,11 +56,11 @@ prospector-web/
 │   ├── search.py       ← búsqueda en Google Places (+ mock)
 │   ├── score.py        ← scoring de oportunidad
 │   ├── contact.py      ← canal de contacto óptimo
-│   ├── enrich.py       ← (próximo) email enrichment
-│   └── landing.py      ← (próximo) landing con Claude
+│   ├── enrich.py       ← email enrichment (scrape + Outscraper + Hunter)
+│   └── landing.py      ← landing HTML con Claude
 ├── export/
-│   ├── excel.py        ← (próximo)
-│   └── pdf_proposal.py ← (próximo)
+│   ├── excel.py        ← export Excel con dropdown y colores
+│   └── pdf_proposal.py ← PDF imprimible A4
 └── outputs/
     ├── landings/
     ├── excel/
