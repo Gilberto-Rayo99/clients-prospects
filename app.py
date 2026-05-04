@@ -8,6 +8,8 @@ import streamlit as st
 
 import config
 from core.contact import suggest_contact_channel
+from core.enrich import enrich_contact
+from core.landing import generate_landing
 from core.score import calculate_score
 from core.search import search_businesses
 
@@ -32,16 +34,18 @@ if "prospects" not in st.session_state:
     st.session_state["prospects"] = []
 if "last_search" not in st.session_state:
     st.session_state["last_search"] = None
+if "preview_landing" not in st.session_state:
+    st.session_state["preview_landing"] = None  # (name, html)
 
 
 # ============================================================
 # Helpers
 # ============================================================
-def _enrich_in_place(prospects: list[dict]) -> list[dict]:
-    """Agrega score y canal de contacto a cada prospecto."""
+def _process_prospects(prospects: list[dict]) -> list[dict]:
+    """Enriquece (email + redes), calcula score y canal, ordena por score."""
     out = []
     for b in prospects:
-        b = dict(b)
+        b = enrich_contact(b)
         b["score"] = calculate_score(b)
         contact = suggest_contact_channel(b)
         b["contact_channel"] = contact["channel"]
@@ -49,6 +53,13 @@ def _enrich_in_place(prospects: list[dict]) -> list[dict]:
         out.append(b)
     out.sort(key=lambda x: x["score"], reverse=True)
     return out
+
+
+def _find_prospect_index(place_id: str) -> int | None:
+    for i, p in enumerate(st.session_state["prospects"]):
+        if p.get("place_id") == place_id:
+            return i
+    return None
 
 
 CHANNEL_ICON = {
@@ -106,19 +117,21 @@ st.title("Prospectos encontrados")
 if clear_btn:
     st.session_state["prospects"] = []
     st.session_state["last_search"] = None
+    st.session_state["preview_landing"] = None
     st.rerun()
 
 if search_btn:
-    with st.spinner("Buscando negocios..."):
+    with st.spinner("Buscando y enriqueciendo negocios..."):
         try:
             raw = search_businesses(zone, radius_km, category, web_filter_key)
-            st.session_state["prospects"] = _enrich_in_place(raw)
+            st.session_state["prospects"] = _process_prospects(raw)
             st.session_state["last_search"] = {
                 "zone": zone,
                 "radius_km": radius_km,
                 "category": category,
                 "filter": web_filter_label,
             }
+            st.session_state["preview_landing"] = None
         except Exception as e:
             logger.exception("Falló la búsqueda")
             st.error(f"Error al buscar: {e}")
@@ -150,6 +163,20 @@ if st.session_state.get("last_search"):
 
 st.markdown("---")
 
+# ===== Preview de landing (si hay una activa) =====
+if st.session_state["preview_landing"]:
+    name, html = st.session_state["preview_landing"]
+    with st.container(border=True):
+        col_t, col_x = st.columns([10, 1])
+        with col_t:
+            st.markdown(f"### 🌐 Vista previa: **{name}**")
+        with col_x:
+            if st.button("✕", key="close_preview"):
+                st.session_state["preview_landing"] = None
+                st.rerun()
+        st.components.v1.html(html, height=720, scrolling=True)
+    st.markdown("---")
+
 # ===== Tabla =====
 rows = []
 for p in prospects:
@@ -160,10 +187,10 @@ for p in prospects:
         "Categoría": p.get("category", ""),
         "⭐": p.get("rating") or "—",
         "Reseñas": p.get("reviews_count") or 0,
-        "Web": "❌" if not p.get("website") else "⚠️" if p["score"] >= 6 and p.get("website") else "✅",
+        "Web": "❌" if not p.get("website") else "⚠️",
+        "Email": "✅" if p.get("email") else "—",
         "Canal": f"{CHANNEL_ICON.get(p['contact_channel'], '?')} {p['contact_channel']}",
-        "Teléfono": p.get("phone") or "—",
-        "Dirección": p.get("address", ""),
+        "Landing": "✅" if p.get("landing_path") else "—",
     })
 
 df = pd.DataFrame(rows)
@@ -179,13 +206,48 @@ for i, p in enumerate(prospects):
             st.markdown(f"**Dirección:** {p.get('address', '—')}")
             st.markdown(f"**Teléfono:** {p.get('phone') or '—'}")
             st.markdown(f"**Web:** {p.get('website') or '_(sin web)_'}")
+            st.markdown(f"**Email:** {p.get('email') or '_(no encontrado)_'}")
+            if p.get("social_links"):
+                links = " · ".join(
+                    f"[{k}]({v})" for k, v in p["social_links"].items() if v
+                )
+                if links:
+                    st.markdown(f"**Redes:** {links}")
             st.markdown(f"**Rating:** {p.get('rating') or '—'} ⭐ ({p.get('reviews_count', 0)} reseñas)")
             st.markdown(f"**Canal sugerido:** {CHANNEL_ICON.get(p['contact_channel'], '')} `{p['contact_channel']}` → {p['contact_value']}")
             if p.get("maps_url"):
                 st.markdown(f"[📍 Ver en Google Maps]({p['maps_url']})")
+            if p.get("landing_path"):
+                st.markdown(f"📄 Landing guardada en: `{p['landing_path']}`")
+
         with col_r:
-            st.button("🌐 Generar landing", key=f"land_{i}", disabled=True, help="Próxima etapa")
-            st.button("📄 Generar PDF", key=f"pdf_{i}", disabled=True, help="Próxima etapa")
+            place_id = p.get("place_id", f"idx_{i}")
+            if st.button("🌐 Generar landing", key=f"land_{place_id}", use_container_width=True):
+                with st.spinner(f"Generando landing para {p['name']}..."):
+                    try:
+                        html, path = generate_landing(p)
+                        idx = _find_prospect_index(place_id)
+                        if idx is not None:
+                            st.session_state["prospects"][idx]["landing_path"] = path
+                            st.session_state["prospects"][idx]["landing_html"] = html
+                        st.session_state["preview_landing"] = (p["name"], html)
+                        st.success("Landing generada")
+                        st.rerun()
+                    except Exception as e:
+                        logger.exception("Falló la generación de landing")
+                        st.error(f"Error: {e}")
+
+            if p.get("landing_html") or p.get("landing_path"):
+                if st.button("👁️ Ver landing", key=f"view_{place_id}", use_container_width=True):
+                    html = p.get("landing_html")
+                    if not html and p.get("landing_path"):
+                        from pathlib import Path
+                        html = Path(p["landing_path"]).read_text(encoding="utf-8")
+                    st.session_state["preview_landing"] = (p["name"], html)
+                    st.rerun()
+
+            st.button("📄 Generar PDF", key=f"pdf_{place_id}", disabled=True,
+                      help="Próxima etapa", use_container_width=True)
 
 st.markdown("---")
-st.caption("Etapa 1 — MVP. Próximamente: enriquecimiento de email, landing con Claude y exports Excel/PDF.")
+st.caption("Etapa 2 — Búsqueda + enrich + landing. Próximamente: exports Excel/PDF.")
