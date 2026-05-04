@@ -291,11 +291,14 @@ Devuelve SOLO el HTML completo desde <!DOCTYPE html> hasta </html>. Sin explicac
 def generate_landing(business: dict) -> tuple[str, str]:
     """Genera el HTML y lo guarda en outputs/landings/.
 
+    Decide la fuente según `ANTHROPIC_API_KEY` (no según USE_MOCK_DATA, para
+    permitir el flujo real de Google Places + landing mock al mismo tiempo).
+
     Returns:
         (html_string, ruta_archivo_guardado)
     """
-    if config.USE_MOCK_DATA or not config.ANTHROPIC_API_KEY:
-        logger.info("Generando landing en modo MOCK para %s", business.get("name"))
+    if not config.ANTHROPIC_API_KEY:
+        logger.info("Sin ANTHROPIC_API_KEY → mock para %s", business.get("name"))
         html = _mock_landing_html(business)
     else:
         logger.info("Generando landing con Claude para %s", business.get("name"))
