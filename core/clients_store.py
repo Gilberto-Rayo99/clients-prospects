@@ -26,14 +26,7 @@ CLIENTS_FILE = config.OUTPUTS_DIR / "clients.json"
 _LOCK = threading.Lock()
 
 
-CLIENT_STATUSES = [
-    "Pendiente",
-    "Contactado",
-    "Propuesta enviada",
-    "Negociación",
-    "Cerrado",
-    "Descartado",
-]
+CLIENT_STATUSES = config.PIPELINE_STAGE_NAMES
 
 
 # ============================================================

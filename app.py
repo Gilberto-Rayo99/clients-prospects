@@ -15,6 +15,7 @@ from core.enrich import enrich_contact
 from core.html_validator import validate_html
 from core.landing import generate_landing
 from core.landing_prompt import build_landing_prompt, build_short_summary
+from core.messaging import render_message, whatsapp_url
 from core.score import calculate_score, calculate_score_breakdown, format_breakdown
 from core.search import search_businesses
 from export.excel import export_to_excel
@@ -478,6 +479,90 @@ with tab_clients:
                         )
                         st.success("Cambios guardados")
                         _refresh()
+
+                # ===== Pipeline visual =====
+                st.markdown("---")
+                st.markdown("### 📊 Pipeline")
+                stage_idx = next(
+                    (i for i, (name, _, _) in enumerate(config.PIPELINE_STAGES)
+                     if name == cli.get("estado", "Pendiente")),
+                    0,
+                )
+                # Si está descartado, no mostrar barra
+                stage_meta = config.PIPELINE_STAGES[stage_idx]
+                if stage_meta[2] < 0:
+                    st.error(f"❌ Cliente descartado")
+                else:
+                    progress_stages = [s for s in config.PIPELINE_STAGES if s[2] >= 0]
+                    progress_pct = stage_meta[2] / max(1, max(s[2] for s in progress_stages))
+                    st.progress(progress_pct)
+                    cols = st.columns(len(progress_stages))
+                    for i, (name, icon, idx) in enumerate(progress_stages):
+                        with cols[i]:
+                            mark = "✅" if idx <= stage_meta[2] else "⚪"
+                            st.caption(f"{mark} {icon} {name}")
+
+                # ===== Mensajes WhatsApp =====
+                st.markdown("---")
+                st.markdown("### 💬 Mensaje WhatsApp")
+
+                phone_clean = cli.get("phone")
+                if not phone_clean:
+                    st.warning("Este cliente no tiene teléfono — no se puede mandar WhatsApp.")
+                else:
+                    col_t1, col_t2 = st.columns([2, 1])
+                    with col_t1:
+                        # Sugerir plantilla por defecto según estado del cliente
+                        if cli.get("estado") in ("Mensaje enviado",) and not cli.get("respondio"):
+                            default_tpl = "follow_up_sin_respuesta"
+                        elif cli.get("website"):
+                            default_tpl = "inicial_web_desactualizada"
+                        else:
+                            default_tpl = "inicial_sin_web"
+
+                        tpl_keys = list(config.WHATSAPP_TEMPLATES.keys())
+                        tpl_labels = [config.WHATSAPP_TEMPLATE_LABELS[k] for k in tpl_keys]
+                        idx = tpl_keys.index(default_tpl) if default_tpl in tpl_keys else 0
+                        tpl_label = st.selectbox(
+                            "Plantilla",
+                            options=tpl_labels,
+                            index=idx,
+                            key=f"tpl_{sel_id}",
+                        )
+                        tpl_key = tpl_keys[tpl_labels.index(tpl_label)]
+                    with col_t2:
+                        landing_url_input = st.text_input(
+                            "URL Netlify (opcional)",
+                            value="",
+                            placeholder="https://xxx.netlify.app",
+                            key=f"netlify_{sel_id}",
+                            help="Cuando subas el HTML a Netlify Drop, pega aquí el link público.",
+                        )
+
+                    rendered = render_message(tpl_key, cli, landing_url_input)
+                    st.text_area(
+                        "Mensaje generado (cópialo manualmente o usa el botón de WhatsApp)",
+                        value=rendered,
+                        height=200,
+                        key=f"msg_{sel_id}",
+                    )
+
+                    col_wa1, col_wa2 = st.columns(2)
+                    with col_wa1:
+                        wa_url = whatsapp_url(cli, rendered)
+                        if wa_url:
+                            st.link_button(
+                                "📲 Abrir WhatsApp con mensaje",
+                                wa_url,
+                                use_container_width=True,
+                                type="primary",
+                            )
+                    with col_wa2:
+                        if st.button("✅ Marcar como enviado", key=f"sent_{sel_id}",
+                                     use_container_width=True):
+                            clients_store.update(sel_id, estado="Mensaje enviado")
+                            st.success("Estado actualizado a 'Mensaje enviado'")
+                            _refresh()
 
                 # ===== Landing =====
                 st.markdown("---")
