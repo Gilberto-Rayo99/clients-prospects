@@ -6,6 +6,7 @@ import logging
 import re
 import zipfile
 from datetime import date, datetime
+from difflib import SequenceMatcher
 from pathlib import Path
 
 import pandas as pd
@@ -144,6 +145,23 @@ def _clients() -> list[dict]:
 
 def _saved_place_ids() -> set:
     return {c.get("place_id") for c in _clients() if c.get("place_id")}
+
+
+def _fuzzy_match_client(filename: str, clients: list[dict]) -> tuple[dict | None, float]:
+    """Encuentra el cliente cuyo nombre es más parecido al nombre del archivo HTML."""
+    stem = re.sub(r"\.(html?|htm)$", "", filename, flags=re.IGNORECASE)
+    stem = re.sub(r"[^a-z0-9]+", " ", stem.lower()).strip()
+
+    best_client: dict | None = None
+    best_score = 0.0
+    for c in clients:
+        cname = re.sub(r"[^a-z0-9]+", " ", c.get("name", "").lower()).strip()
+        score = SequenceMatcher(None, stem, cname).ratio()
+        if score > best_score:
+            best_score = score
+            best_client = c
+
+    return (best_client, best_score) if best_score >= 0.35 else (None, 0.0)
 
 
 @st.dialog("Mensaje enviado")
@@ -1035,6 +1053,96 @@ with tab_export:
                 mime="application/zip",
                 use_container_width=True,
             )
+
+        st.markdown("---")
+        st.markdown("### 📤 Carga masiva de landings")
+        st.caption(
+            "Sube varios `.html` de una vez. La app los asigna automáticamente al cliente "
+            "más parecido por nombre de archivo. Revisa y corrige antes de guardar."
+        )
+
+        bulk_files = st.file_uploader(
+            "Arrastra los archivos HTML aquí",
+            type=["html", "htm"],
+            accept_multiple_files=True,
+            key="bulk_html_upload",
+        )
+
+        if bulk_files:
+            from core.html_validator import validate_html
+
+            _clist = all_clients
+            _cnames = ["— Sin asignar —"] + [c["name"] for c in _clist]
+            _cid_map = {c["name"]: c["id"] for c in _clist}
+
+            st.markdown(f"**{len(bulk_files)} archivo(s) detectado(s)** — revisa las asignaciones:")
+
+            # Cabecera
+            hc1, hc2, hc3, hc4 = st.columns([3, 4, 1, 2])
+            hc1.markdown("**Archivo**")
+            hc2.markdown("**Cliente asignado**")
+            hc3.markdown("**Match**")
+            hc4.markdown("**Estado actual**")
+
+            confirmed: list[tuple] = []  # (UploadedFile, client_name)
+            for uf in bulk_files:
+                best, score = _fuzzy_match_client(uf.name, _clist)
+                default_idx = (_cnames.index(best["name"])
+                               if best and best["name"] in _cnames else 0)
+
+                c1, c2, c3, c4 = st.columns([3, 4, 1, 2])
+                with c1:
+                    ok_html, _ = validate_html(uf.read().decode("utf-8", errors="replace"))
+                    uf.seek(0)
+                    icon = "✅" if ok_html else "⚠️"
+                    st.markdown(f"{icon} `{uf.name}`")
+                with c2:
+                    selected = st.selectbox(
+                        "cliente",
+                        options=_cnames,
+                        index=default_idx,
+                        key=f"bulk_assign_{uf.name}",
+                        label_visibility="collapsed",
+                    )
+                with c3:
+                    if score:
+                        color = "green" if score >= 0.7 else "orange"
+                        st.markdown(f":{color}[{int(score * 100)}%]")
+                    else:
+                        st.markdown(":red[—]")
+                with c4:
+                    cli_estado = (
+                        next((c.get("estado", "") for c in _clist
+                              if c["name"] == selected), "")
+                        if selected != "— Sin asignar —" else ""
+                    )
+                    st.caption(cli_estado or "—")
+
+                if selected != "— Sin asignar —":
+                    confirmed.append((uf, selected))
+
+            n_ok = len(confirmed)
+            if st.button(
+                f"💾 Guardar {n_ok} landing(s)",
+                type="primary",
+                use_container_width=True,
+                disabled=n_ok == 0,
+                key="bulk_html_save",
+            ):
+                saved_ok, saved_fail = 0, 0
+                for uf, cname in confirmed:
+                    cid = _cid_map.get(cname)
+                    if not cid:
+                        saved_fail += 1
+                        continue
+                    html_text = uf.read().decode("utf-8", errors="replace")
+                    clients_store.save_landing_html(cid, html_text)
+                    saved_ok += 1
+                if saved_ok:
+                    st.success(f"✅ {saved_ok} landing(s) guardadas y estados actualizados.")
+                if saved_fail:
+                    st.warning(f"{saved_fail} no se pudieron guardar.")
+                _refresh()
 
         st.markdown("---")
         st.markdown("### Resumen rápido")
