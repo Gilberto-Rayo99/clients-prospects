@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
 from datetime import date
 from pathlib import Path
 from typing import Optional
@@ -22,6 +23,10 @@ IMG_ROOT = config.LANDINGS_DIR / "img"
 IMG_ROOT.mkdir(parents=True, exist_ok=True)
 
 USAGE_FILE = config.OUTPUTS_DIR / ".gemini_usage.json"
+
+# Lock global para serializar lecturas/escrituras del contador de cuota
+# cuando se ejecutan paquetes en paralelo desde varios threads.
+_USAGE_LOCK = threading.Lock()
 
 
 # ============================================================
@@ -48,23 +53,58 @@ def _today_key() -> str:
 
 
 def _get_used_today() -> int:
-    return int(_read_usage().get(_today_key(), 0))
+    with _USAGE_LOCK:
+        return int(_read_usage().get(_today_key(), 0))
 
 
 def _bump_used_today(n: int = 1) -> int:
-    data = _read_usage()
-    key = _today_key()
-    data[key] = int(data.get(key, 0)) + n
-    # Mantén solo los últimos 30 días para no inflar el archivo
-    keys_sorted = sorted(data.keys())
-    for k in keys_sorted[:-30]:
-        data.pop(k, None)
-    _write_usage(data)
-    return data[key]
+    with _USAGE_LOCK:
+        data = _read_usage()
+        key = _today_key()
+        data[key] = int(data.get(key, 0)) + n
+        # Mantén solo los últimos 30 días para no inflar el archivo
+        keys_sorted = sorted(data.keys())
+        for k in keys_sorted[:-30]:
+            data.pop(k, None)
+        _write_usage(data)
+        return data[key]
 
 
 def remaining_today() -> int:
     return max(0, config.GEMINI_DAILY_BUDGET - _get_used_today())
+
+
+def reserve(n: int) -> int:
+    """Reserva atómicamente `n` imágenes del cupo diario.
+
+    Devuelve cuántas pudo reservar (puede ser menos si el cupo no alcanza).
+    Pensado para paralelo: el caller llama `reserve(8)` antes de lanzar el
+    paquete; si devuelve menos de 8, ese paquete sabrá que parte caerá a
+    Unsplash. Si después no consume todas las reservadas (ej. por cache
+    o error) puede llamar `release` para devolverlas.
+    """
+    with _USAGE_LOCK:
+        data = _read_usage()
+        key = _today_key()
+        used = int(data.get(key, 0))
+        avail = max(0, config.GEMINI_DAILY_BUDGET - used)
+        granted = min(avail, max(0, n))
+        if granted > 0:
+            data[key] = used + granted
+            _write_usage(data)
+        return granted
+
+
+def release(n: int) -> None:
+    """Devuelve al cupo `n` imágenes reservadas que no se llegaron a usar."""
+    if n <= 0:
+        return
+    with _USAGE_LOCK:
+        data = _read_usage()
+        key = _today_key()
+        used = int(data.get(key, 0))
+        data[key] = max(0, used - n)
+        _write_usage(data)
 
 
 # ============================================================
@@ -306,30 +346,38 @@ def generate_business_images(business: dict) -> Optional[dict[str, str]]:
         else:
             needed.append((slot, scene, w, h))
 
-    # Verificar cuota antes de empezar a generar
-    remaining = remaining_today()
-    if remaining <= 0 and needed:
-        logger.warning("Cuota Gemini agotada hoy (%d/día). Fallback a Unsplash.",
-                       config.GEMINI_DAILY_BUDGET)
-        return None
+    # Reservar atómicamente la cuota que necesitamos. Esto es seguro aunque
+    # haya varios threads llamándonos en paralelo.
+    if needed:
+        granted = reserve(len(needed))
+        if granted == 0:
+            logger.warning("Cuota Gemini agotada hoy (%d/día). Fallback a Unsplash.",
+                           config.GEMINI_DAILY_BUDGET)
+            return None
+        if granted < len(needed):
+            logger.warning("Solo se reservaron %d de %d imágenes pedidas para %s.",
+                           granted, len(needed), business.get("name"))
+            needed = needed[:granted]
 
-    if needed and len(needed) > remaining:
-        logger.warning("Solo quedan %d imágenes de cuota; necesitas %d. Generaré las que pueda.",
-                       remaining, len(needed))
-        needed = needed[:remaining]
-
-    # Generar secuencialmente (sin prisa, según preferencia del usuario)
+    # Generar secuencialmente dentro del paquete
+    fallos = 0
     for slot, scene, w, h in needed:
         prompt = _build_prompt(business, scene, w, h)
         path = biz_dir / f"{slot}.png"
         ok = _gemini_generate_one(prompt, path)
         if ok:
-            _bump_used_today(1)
             result[slot] = f"{rel_base}/{slot}.png"
-            logger.info("Gemini OK → %s (uso hoy: %d/%d)",
-                        path.name, _get_used_today(), config.GEMINI_DAILY_BUDGET)
+            logger.info("Gemini OK → %s/%s (uso hoy: %d/%d)",
+                        biz_dir.name, path.name,
+                        _get_used_today(), config.GEMINI_DAILY_BUDGET)
         else:
-            logger.warning("Gemini falló slot=%s, ese hueco caerá a Unsplash", slot)
+            fallos += 1
+            logger.warning("Gemini falló slot=%s para %s, hueco caerá a Unsplash",
+                           slot, business.get("name"))
+
+    # Devolver al cupo las que reservé pero no consumí (fallos)
+    if fallos:
+        release(fallos)
 
     if not result:
         return None

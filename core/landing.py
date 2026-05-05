@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import date
 from pathlib import Path
 
 import config
@@ -733,3 +734,112 @@ def export_landing_package(business: dict) -> tuple[bytes, dict]:
         "slug": slug,
     }
     return buf.getvalue(), metadata
+
+
+# ============================================================
+# Generación paralela de paquetes (lote)
+# ============================================================
+def export_landing_packages_parallel(
+    businesses: list[dict],
+    max_workers: int = 10,
+    progress_cb=None,
+) -> tuple[Path, list[dict]]:
+    """Genera N paquetes en paralelo y los empaqueta en un zip-de-zips en disco.
+
+    El paralelismo es a nivel de PAQUETE (un thread por prospecto). Dentro
+    de cada paquete las 8 imágenes siguen siendo secuenciales — esto evita
+    saturar el rate-limit de Gemini (10 RPM en tier free).
+
+    Para no quemar RAM en Streamlit Cloud, cada paquete se escribe a un
+    archivo temporal en disco, y el zip-de-zips final también va a disco.
+
+    Args:
+        businesses: lista de dicts de prospectos.
+        max_workers: hilos concurrentes. Default 10 (sweet spot para
+            tier free de Gemini, no satura el rate-limit con paquetes
+            secuencialmente internos).
+        progress_cb: callable(done: int, total: int, last_name: str) que
+            se invoca cada vez que un paquete termina. Útil para st.progress.
+
+    Returns:
+        (path_zip_final, results) donde results es una lista de dicts con
+        {name, ok, images, error}.
+    """
+    import concurrent.futures
+    import io
+    import tempfile
+    import threading
+    import zipfile
+
+    if not businesses:
+        raise ValueError("Lista de prospectos vacía")
+
+    tmp_root = Path(tempfile.mkdtemp(prefix="landing_pkgs_"))
+    final_zip_path = tmp_root / "landing_packages.zip"
+    results: list[dict] = []
+    results_lock = threading.Lock()
+
+    def _worker(biz: dict) -> dict:
+        name = biz.get("name", "(sin nombre)")
+        try:
+            zip_bytes, meta = export_landing_package(biz)
+            # Persistir en disco temporal en vez de mantener bytes en memoria
+            slug = meta.get("slug") or _slugify(name)
+            inner_path = tmp_root / f"{slug}__{biz.get('place_id') or biz.get('id', 'x')}.zip"
+            inner_path.write_bytes(zip_bytes)
+            return {
+                "name": name,
+                "ok": True,
+                "inner_path": inner_path,
+                "slug": slug,
+                "images": meta.get("images_generated", 0),
+                "error": None,
+            }
+        except Exception as e:
+            logger.exception("Falló paquete para %s", name)
+            return {
+                "name": name,
+                "ok": False,
+                "inner_path": None,
+                "slug": _slugify(name),
+                "images": 0,
+                "error": str(e),
+            }
+
+    total = len(businesses)
+    done = 0
+
+    # Ejecutar en paralelo. ThreadPool porque las llamadas Gemini son I/O-bound.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {pool.submit(_worker, b): b for b in businesses}
+        for fut in concurrent.futures.as_completed(futures):
+            res = fut.result()
+            with results_lock:
+                results.append(res)
+                done += 1
+                if progress_cb:
+                    try:
+                        progress_cb(done, total, res["name"])
+                    except Exception:
+                        pass  # nunca dejar caer un fallo de UI
+
+    # Zip-de-zips final, también en disco para no llenar RAM
+    with zipfile.ZipFile(final_zip_path, "w", zipfile.ZIP_DEFLATED) as outer:
+        # Manifest legible para el usuario
+        manifest_lines = [
+            f"# Lote de paquetes generado el {date.today().isoformat()}",
+            f"# Total: {total} prospectos · OK: {sum(1 for r in results if r['ok'])} · "
+            f"Errores: {sum(1 for r in results if not r['ok'])}",
+            "",
+        ]
+        for r in results:
+            status = "OK" if r["ok"] else f"ERROR: {r['error']}"
+            manifest_lines.append(f"- {r['name']:40s} → {r['images']} imgs · {status}")
+        outer.writestr("MANIFEST.txt", "\n".join(manifest_lines))
+
+        for r in results:
+            if r["ok"] and r["inner_path"] and r["inner_path"].exists():
+                arcname = f"{r['slug']}.zip"
+                outer.write(r["inner_path"], arcname=arcname)
+
+    return final_zip_path, results
