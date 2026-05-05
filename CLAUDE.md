@@ -3,9 +3,33 @@
 
 ---
 
+## ⚠️ Flujo correcto de generación de landings (LEE ESTO PRIMERO)
+
+El flujo actual en `core/landing.py` que llama a la **API de Claude** desde la app es un atajo legacy. El flujo **correcto y deseado por el usuario** es:
+
+1. **App (Streamlit) hace SOLO dos cosas:**
+   - Genera el `prompt.txt` v2 personalizado al contexto del negocio (arquetipo, paleta, secciones, etc.) usando la lógica que ya está en `core/landing.py::_build_prompt_v2`.
+   - Genera las imágenes a medida con **Gemini 2.5 Flash Image (Nano Banana)** vía `GEMINI_API_KEY` y las guarda en `outputs/landings/img/{place_id}/`.
+   - **Exporta** un paquete: `prompt.txt` + carpeta de imágenes (idealmente un `.zip` descargable desde la UI).
+
+2. **El usuario (Gilberto)** toma ese paquete y lo sube a **claude.ai (Claude Design / claude.ai con artifacts)** manualmente. Ahí Claude genera el HTML final, referenciando las imágenes Gemini en vez de Unsplash.
+
+**Por qué este flujo, no el actual:**
+- claude.ai (web) tiene mejores capacidades de diseño que la API directa para artifacts/HTML largos, y no consume créditos de la API.
+- Mantiene la app gratis (solo Gemini cuesta cuota, y son 100/día gratis).
+- El usuario ya paga claude.ai, aprovecha esa suscripción en lugar de pagar API por cada landing.
+
+**Tareas pendientes para alinear el código a este flujo (cuando se pida):**
+- En `app.py`: cambiar el botón "Generar landing" para que en vez de llamar a `_claude_landing_html`, exporte un `.zip` con `prompt.txt` + `img/*.png`.
+- En `core/landing.py`: dejar `_build_prompt_v2` como función pública, pero la llamada a `client.messages.create` (Anthropic) puede quedar como modo opcional / debug, no por default.
+- Mantener `core/images.py` como está (es la pieza que sí queda en la app).
+- El paso de subir a claude.ai es manual, no automatizar.
+
+---
+
 ## Qué es este proyecto
 
-Sistema de prospección de clientes para agencia de desarrollo web. Busca negocios locales en Google Maps que no tienen página web o la tienen desactualizada, enriquece sus datos de contacto, genera una landing page de muestra usando la API de Claude, y exporta todo a Excel o PDF imprimible para presentar la propuesta al cliente.
+Sistema de prospección de clientes para agencia de desarrollo web. Busca negocios locales en Google Maps que no tienen página web o la tienen desactualizada, enriquece sus datos de contacto, genera un **prompt + imágenes a medida** para que el usuario produzca una landing page con claude.ai, y exporta todo a Excel o PDF imprimible para presentar la propuesta al cliente.
 
 El usuario final no es desarrollador. La interfaz es una app web local con **Streamlit**. Se corre con un solo comando desde la terminal.
 
