@@ -250,7 +250,6 @@ def save_landing_html(client_id: str, html: str) -> Optional[dict]:
 
     landing_path = None
     if not _use_supabase():
-        # Solo intentamos escribir archivo en modo local
         try:
             slug = _slugify(cli.get("name", "cliente"))
             path = config.LANDINGS_DIR / f"{slug}.html"
@@ -259,7 +258,12 @@ def save_landing_html(client_id: str, html: str) -> Optional[dict]:
         except Exception as e:
             logger.warning("No pude escribir landing a disco: %s", e)
 
-    return update(client_id, landing_html=html, landing_path=landing_path)
+    # Avanzar estado automáticamente si todavía estaba en etapa pre-landing
+    fields: dict = {"landing_html": html, "landing_path": landing_path}
+    if cli.get("estado") in ("Pendiente", "Falta landing"):
+        fields["estado"] = "Mensaje listo"
+
+    return update(client_id, **fields)
 
 
 # ============================================================
