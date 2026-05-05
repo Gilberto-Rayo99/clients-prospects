@@ -26,6 +26,7 @@ OUTSCRAPER_API_KEY = os.getenv("OUTSCRAPER_API_KEY", "").strip()
 HUNTER_API_KEY = os.getenv("HUNTER_API_KEY", "").strip()
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
 NETLIFY_API_TOKEN = os.getenv("NETLIFY_API_TOKEN", "").strip()
+APP_PASSWORD = os.getenv("APP_PASSWORD", "").strip()
 
 # ===== Supabase =====
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()

@@ -40,6 +40,27 @@ st.set_page_config(
 )
 
 # ============================================================
+# Login gate
+# ============================================================
+_APP_PASSWORD = config.APP_PASSWORD
+
+if _APP_PASSWORD:
+    st.session_state.setdefault("authenticated", False)
+
+    if not st.session_state["authenticated"]:
+        st.set_page_config(page_title="Prospector Web — Acceso", page_icon="🔒", layout="centered")
+        st.markdown("## 🔒 Prospector Web")
+        pwd = st.text_input("Contraseña", type="password", placeholder="Ingresa la contraseña...")
+        if st.button("Entrar", type="primary", use_container_width=True):
+            if pwd == _APP_PASSWORD:
+                st.session_state["authenticated"] = True
+                st.rerun()
+            else:
+                st.error("Contraseña incorrecta.")
+        st.stop()
+
+
+# ============================================================
 # State
 # ============================================================
 st.session_state.setdefault("prospects", [])
