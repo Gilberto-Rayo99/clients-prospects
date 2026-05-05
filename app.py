@@ -715,11 +715,13 @@ with tab_clients:
                         )
 
                     rendered = render_message(tpl_key, cli, landing_url_input)
+                    # NOTA: sin `key=` a propósito — si lo ponemos, Streamlit
+                    # cachea el valor en session_state y no se refresca cuando
+                    # cambias plantilla o URL Netlify.
                     st.text_area(
                         "Mensaje generado (cópialo manualmente o usa el botón de WhatsApp)",
                         value=rendered,
-                        height=200,
-                        key=f"msg_{sel_id}",
+                        height=220,
                     )
 
                     col_wa1, col_wa2 = st.columns(2)
