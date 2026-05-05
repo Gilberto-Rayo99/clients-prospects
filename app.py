@@ -933,55 +933,63 @@ with tab_clients:
                     # ===== 🅱️ Paquete con imágenes Gemini =====
                     st.markdown("##### 🅱️ Paquete premium (prompt + imágenes Gemini)")
                     pkg_state_key = f"landing_pkg_{sel_id}"
-                    if config.GEMINI_API_KEY:
-                        col_pkg1, col_pkg2 = st.columns([3, 2])
-                        with col_pkg1:
-                            if st.button(
-                                "📦 Generar paquete (~1-2 min, usa cuota Gemini)",
-                                key=f"genpkg_{sel_id}",
-                                type="primary",
-                                use_container_width=True,
-                            ):
-                                with st.spinner("Generando imágenes con Gemini y empaquetando..."):
-                                    try:
-                                        from core.landing import export_landing_package
-                                        zip_bytes, meta = export_landing_package(cli)
-                                        st.session_state[pkg_state_key] = {
-                                            "bytes": zip_bytes,
-                                            "meta": meta,
-                                        }
-                                        if meta["images_generated"]:
-                                            st.success(
-                                                f"✅ {meta['images_generated']} imágenes generadas. "
-                                                f"Quedan **{meta['remaining_today']}** hoy."
-                                            )
-                                        else:
-                                            st.warning(
-                                                "⚠️ Gemini no generó imágenes (cuota agotada o error). "
-                                                "El zip incluye el prompt con instrucciones de Unsplash."
-                                            )
-                                    except Exception as e:
-                                        logger.exception("Falló export_landing_package")
-                                        st.error(f"Error: {e}")
-                        with col_pkg2:
-                            pkg = st.session_state.get(pkg_state_key)
-                            if pkg:
-                                st.download_button(
-                                    "⬇️ Descargar zip",
-                                    data=pkg["bytes"],
-                                    file_name=f"{pkg['meta']['slug']}_landing_package.zip",
-                                    mime="application/zip",
-                                    key=f"dlpkg_{sel_id}",
-                                    use_container_width=True,
-                                )
-                            else:
-                                st.caption("ℹ️ Genera primero el paquete.")
-                    else:
-                        st.info(
-                            "🔑 Configura `GEMINI_API_KEY` en `.env` (o en Secrets de Streamlit Cloud) "
-                            "para habilitar las imágenes a medida. "
-                            "Saca tu key gratis en https://aistudio.google.com/apikey"
+
+                    if not config.GEMINI_API_KEY:
+                        st.warning(
+                            "🔑 No detecto `GEMINI_API_KEY`. El paquete sigue funcionando "
+                            "pero el zip solo traerá el prompt (con instrucciones de Unsplash, "
+                            "sin imágenes a medida). Saca tu key gratis en "
+                            "https://aistudio.google.com/apikey y añádela a Secrets / `.env`."
                         )
+
+                    # Botón "Generar" SIEMPRE visible (incluso sin key — devolverá zip
+                    # sin imágenes pero con el prompt v2). Layout en stack (no columnas)
+                    # para que el download nunca se corte ni se esconda.
+                    if st.button(
+                        "📦 Generar paquete (~1-2 min con Gemini, instantáneo sin)",
+                        key=f"genpkg_{sel_id}",
+                        type="primary",
+                        use_container_width=True,
+                    ):
+                        with st.spinner("Generando imágenes con Gemini y empaquetando..."):
+                            try:
+                                from core.landing import export_landing_package
+                                zip_bytes, meta = export_landing_package(cli)
+                                st.session_state[pkg_state_key] = {
+                                    "bytes": zip_bytes,
+                                    "meta": meta,
+                                }
+                                if meta["images_generated"]:
+                                    st.success(
+                                        f"✅ {meta['images_generated']} imágenes generadas. "
+                                        f"Quedan **{meta['remaining_today']}** hoy."
+                                    )
+                                else:
+                                    st.info(
+                                        "ℹ️ Sin imágenes Gemini. El zip incluye el prompt "
+                                        "con instrucciones de Unsplash."
+                                    )
+                            except Exception as e:
+                                logger.exception("Falló export_landing_package")
+                                st.error(f"Error: {e}")
+
+                    # Botón de descarga: SIEMPRE renderizado en su propia fila
+                    pkg = st.session_state.get(pkg_state_key)
+                    if pkg and pkg.get("bytes"):
+                        st.download_button(
+                            f"⬇️ Descargar zip ({len(pkg['bytes']) // 1024} KB)",
+                            data=pkg["bytes"],
+                            file_name=f"{pkg['meta']['slug']}_landing_package.zip",
+                            mime="application/zip",
+                            key=f"dlpkg_{sel_id}",
+                            use_container_width=True,
+                        )
+                        st.caption(
+                            f"📦 {pkg['meta'].get('images_generated', 0)} imágenes · "
+                            f"slug `{pkg['meta'].get('slug')}`"
+                        )
+                    else:
+                        st.caption("ℹ️ Click en **Generar paquete** primero — el botón de descarga aparecerá aquí.")
 
                     st.markdown("---")
 
@@ -1248,126 +1256,129 @@ with tab_export:
         st.markdown("### 📦 Paquetes premium en lote (con imágenes Gemini)")
 
         if not config.GEMINI_API_KEY:
-            st.info(
-                "🔑 Configura `GEMINI_API_KEY` (en `.env` o en Secrets de Streamlit Cloud) "
-                "para habilitar el lote premium con imágenes a medida. "
-                "Saca tu key gratis en https://aistudio.google.com/apikey"
+            st.warning(
+                "🔑 No detecto `GEMINI_API_KEY`. El lote sigue funcionando, pero los "
+                "paquetes solo traerán el prompt sin imágenes a medida. "
+                "Saca tu key gratis en https://aistudio.google.com/apikey y añádela a Secrets / `.env`."
             )
-        else:
-            from core import images as _img_mod
 
-            _restante = _img_mod.remaining_today()
-            _por_paquete = config.GEMINI_IMAGES_PER_LANDING
-            _max_pkgs_cuota = _restante // _por_paquete if _por_paquete > 0 else 0
+        from core import images as _img_mod
 
-            st.caption(
-                f"Genera el zip-de-zips para los clientes filtrados. Cada paquete usa "
-                f"~{_por_paquete} imágenes Gemini (cache si ya existen). "
+        _restante = _img_mod.remaining_today() if config.GEMINI_API_KEY else 0
+        _por_paquete = config.GEMINI_IMAGES_PER_LANDING
+        _max_pkgs_cuota = (_restante // _por_paquete) if (_por_paquete > 0 and config.GEMINI_API_KEY) else 9999
+
+        st.caption(
+            f"Genera el zip-de-zips para los clientes filtrados. Cada paquete usa "
+            f"~{_por_paquete} imágenes Gemini (cache si ya existen). "
+            + (
                 f"Hoy quedan **{_restante}** imágenes en tu cupo gratuito → "
                 f"hasta **{_max_pkgs_cuota}** paquetes nuevos como máximo."
+                if config.GEMINI_API_KEY else
+                "Sin GEMINI_API_KEY → paquetes solo con prompt (sin imágenes)."
+            )
+        )
+
+        _estados_pkg = st.multiselect(
+            "Filtrar por estado",
+            options=_all_estados,
+            default=_all_estados,
+            key="pkg_estados_filter",
+            help="Solo se incluirán los clientes con uno de estos estados.",
+        )
+        _clientes_pkg = [
+            c for c in all_clients
+            if (c.get("estado") or "Pendiente") in _estados_pkg
+        ]
+
+        # Cap dinámico: lo menor entre seleccionados y cuota disponible
+        _cap_efectivo = min(len(_clientes_pkg), _max_pkgs_cuota) if _clientes_pkg else 0
+        _se_recortan = config.GEMINI_API_KEY and len(_clientes_pkg) > _max_pkgs_cuota and _max_pkgs_cuota > 0
+
+        col_pp1, col_pp2 = st.columns(2)
+        col_pp1.metric("Filtrados", len(_clientes_pkg))
+        col_pp2.metric("Se procesarán", _cap_efectivo)
+
+        if _se_recortan:
+            st.warning(
+                f"⚠️ Tu cupo solo alcanza para {_max_pkgs_cuota} paquetes nuevos. "
+                f"Procesaré los primeros {_cap_efectivo} de los {len(_clientes_pkg)} filtrados. "
+                f"Si los clientes ya tienen imágenes en cache no consumen cuota."
             )
 
-            _estados_pkg = st.multiselect(
-                "Filtrar por estado",
-                options=_all_estados,
-                default=_all_estados,
-                key="pkg_estados_filter",
-                help="Solo se incluirán los clientes con uno de estos estados.",
-            )
-            _clientes_pkg = [
-                c for c in all_clients
-                if (c.get("estado") or "Pendiente") in _estados_pkg
-            ]
+        _disabled = (_cap_efectivo == 0)
+        _btn_label = (
+            f"📦 Generar {_cap_efectivo} paquetes en paralelo (~1-3 min)"
+            if not _disabled
+            else "Sin clientes filtrados"
+        )
 
-            # Cap dinámico: lo menor entre seleccionados y cuota disponible
-            _cap_efectivo = min(len(_clientes_pkg), max(1, _max_pkgs_cuota)) if _max_pkgs_cuota else 0
-            _se_recortan = len(_clientes_pkg) > _max_pkgs_cuota and _max_pkgs_cuota > 0
+        _pkg_lote_state_key = "pkg_lote_result"
+        if st.button(
+            _btn_label,
+            use_container_width=True,
+            disabled=_disabled,
+            type="primary",
+            key="btn_pkg_lote",
+        ):
+            from core.landing import export_landing_packages_parallel
 
-            col_pp1, col_pp2 = st.columns([3, 2])
-            with col_pp1:
-                st.metric("Filtrados", len(_clientes_pkg))
-            with col_pp2:
-                st.metric("Se procesarán", _cap_efectivo)
+            _to_process = _clientes_pkg[:_cap_efectivo]
+            progress_bar = st.progress(0.0, text="Iniciando…")
+            status_box = st.empty()
 
-            if _se_recortan:
-                st.warning(
-                    f"⚠️ Tu cupo solo alcanza para {_max_pkgs_cuota} paquetes nuevos. "
-                    f"Procesaré los primeros {_cap_efectivo} de los {len(_clientes_pkg)} filtrados. "
-                    f"(Los que tengan imágenes en cache no consumen cuota — "
-                    f"si ya generaste paquetes antes, vuelve a intentar después de procesar este batch.)"
+            def _cb(done: int, total: int, last_name: str):
+                progress_bar.progress(
+                    done / total,
+                    text=f"{done}/{total} paquetes listos · último: {last_name}",
                 )
 
-            _disabled = (_cap_efectivo == 0)
-            _btn_label = (
-                f"📦 Generar {_cap_efectivo} paquetes en paralelo (~1-3 min)"
-                if not _disabled
-                else "Sin clientes o sin cuota disponible"
-            )
+            try:
+                final_path, lote_results = export_landing_packages_parallel(
+                    _to_process,
+                    max_workers=10,
+                    progress_cb=_cb,
+                )
+                progress_bar.empty()
+                n_ok = sum(1 for r in lote_results if r["ok"])
+                n_fail = sum(1 for r in lote_results if not r["ok"])
+                n_imgs = sum(r["images"] for r in lote_results)
+                status_box.success(
+                    f"✅ {n_ok} paquetes generados · {n_imgs} imágenes Gemini · "
+                    f"{n_fail} fallaron · cupo restante: {_img_mod.remaining_today()}/{config.GEMINI_DAILY_BUDGET}"
+                )
+                # Leer los bytes AHORA y guardarlos en session_state para que la
+                # descarga sobreviva aunque se limpie outputs/lotes/.
+                zip_bytes_lote = final_path.read_bytes()
+                st.session_state[_pkg_lote_state_key] = {
+                    "bytes": zip_bytes_lote,
+                    "size": len(zip_bytes_lote),
+                    "results": lote_results,
+                }
+            except Exception as e:
+                progress_bar.empty()
+                logger.exception("Falló export_landing_packages_parallel")
+                status_box.error(f"Error: {e}")
 
-            _pkg_lote_state_key = "pkg_lote_result"
-            if st.button(
-                _btn_label,
+        # Botón de descarga: SIEMPRE renderizado fuera del if del botón generar.
+        # Lee los bytes del session_state (no del path) para que sobreviva limpieza.
+        _pkg_lote = st.session_state.get(_pkg_lote_state_key)
+        if _pkg_lote and _pkg_lote.get("bytes"):
+            st.download_button(
+                f"⬇️ Descargar zip-de-zips ({_pkg_lote['size'] // 1024} KB)",
+                data=_pkg_lote["bytes"],
+                file_name=f"landing_packages_{date.today().strftime('%Y%m%d')}.zip",
+                mime="application/zip",
                 use_container_width=True,
-                disabled=_disabled,
-                type="primary",
-                key="btn_pkg_lote",
-            ):
-                from core.landing import export_landing_packages_parallel
-
-                _to_process = _clientes_pkg[:_cap_efectivo]
-                progress_bar = st.progress(0.0, text="Iniciando…")
-                status_box = st.empty()
-
-                def _cb(done: int, total: int, last_name: str):
-                    progress_bar.progress(
-                        done / total,
-                        text=f"{done}/{total} paquetes listos · último: {last_name}",
-                    )
-
-                try:
-                    final_path, lote_results = export_landing_packages_parallel(
-                        _to_process,
-                        max_workers=10,
-                        progress_cb=_cb,
-                    )
-                    progress_bar.empty()
-                    n_ok = sum(1 for r in lote_results if r["ok"])
-                    n_fail = sum(1 for r in lote_results if not r["ok"])
-                    n_imgs = sum(r["images"] for r in lote_results)
-                    status_box.success(
-                        f"✅ {n_ok} paquetes generados · {n_imgs} imágenes Gemini · "
-                        f"{n_fail} fallaron · cupo restante: {_img_mod.remaining_today()}/95"
-                    )
-                    # Cargar el zip final a session_state para descarga
-                    st.session_state[_pkg_lote_state_key] = {
-                        "path": str(final_path),
-                        "size": final_path.stat().st_size,
-                        "results": lote_results,
-                    }
-                except Exception as e:
-                    progress_bar.empty()
-                    logger.exception("Falló export_landing_packages_parallel")
-                    status_box.error(f"Error: {e}")
-
-            # Botón de descarga si ya existe el zip
-            _pkg_lote = st.session_state.get(_pkg_lote_state_key)
-            if _pkg_lote:
-                _zip_path = Path(_pkg_lote["path"])
-                if _zip_path.exists():
-                    with open(_zip_path, "rb") as fh:
-                        st.download_button(
-                            f"⬇️ Descargar zip-de-zips ({_pkg_lote['size'] // 1024} KB)",
-                            data=fh,
-                            file_name=f"landing_packages_{date.today().strftime('%Y%m%d')}.zip",
-                            mime="application/zip",
-                            use_container_width=True,
-                            key="dl_pkg_lote",
-                        )
-                    with st.expander("📋 Ver detalle del lote"):
-                        for r in _pkg_lote["results"]:
-                            icon = "✅" if r["ok"] else "❌"
-                            extra = f" · {r['images']} imgs" if r["ok"] else f" · {r['error']}"
-                            st.write(f"{icon} {r['name']}{extra}")
+                key="dl_pkg_lote",
+            )
+            with st.expander("📋 Ver detalle del lote"):
+                for r in _pkg_lote["results"]:
+                    icon = "✅" if r["ok"] else "❌"
+                    extra = f" · {r['images']} imgs" if r["ok"] else f" · {r['error']}"
+                    st.write(f"{icon} {r['name']}{extra}")
+        else:
+            st.caption("ℹ️ Click en **Generar paquetes** primero — el botón de descarga aparecerá aquí.")
 
         st.markdown("---")
         st.markdown("### 📤 Carga masiva de landings")
