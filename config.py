@@ -10,6 +10,33 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+# ============================================================
+# Bootstrap de Streamlit Secrets → os.environ
+# ============================================================
+# En Streamlit Cloud, las keys del panel "Secrets" viven en `st.secrets` pero
+# NO siempre se inyectan automáticamente a `os.environ` antes de que este
+# módulo lea los valores con `os.getenv`. Resultado: GEMINI_API_KEY queda
+# vacío aunque esté configurado en Secrets. La fix: si Streamlit está
+# disponible y `st.secrets` tiene contenido, copiarlo a `os.environ` ahora.
+def _hydrate_env_from_streamlit_secrets() -> None:
+    try:
+        import streamlit as st  # type: ignore
+    except Exception:
+        return  # No corremos en Streamlit, nada que hacer
+    try:
+        # `st.secrets` lanza si no hay archivo de secrets configurado;
+        # tratamos cualquier excepción como "no hay secrets disponibles".
+        for k in list(st.secrets.keys()):
+            v = st.secrets[k]
+            if isinstance(v, (str, int, float, bool)) and not os.environ.get(k):
+                os.environ[k] = str(v)
+    except Exception:
+        pass
+
+
+_hydrate_env_from_streamlit_secrets()
+
+
 # ===== Paths =====
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUTS_DIR = BASE_DIR / "outputs"
