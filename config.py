@@ -115,41 +115,41 @@ SMART_FILTERS = {
 
 WHATSAPP_TEMPLATES = {
     "inicial_sin_web": (
-        "Hola {nombre} 👋\n\n"
-        "Soy {tu_nombre} de {agencia}. Vi su negocio en Google Maps y me llamó la atención "
-        "que tienen {rating}★ con {reviews} reseñas — están haciendo un excelente trabajo.\n\n"
-        "Noté que aún no tienen una página web propia. Le hice una propuesta visual GRATIS "
-        "para que vea cómo se vería {nombre} con web profesional 👇\n\n"
+        "Hola, buenos dias! Soy {tu_nombre} de {agencia}.\n\n"
+        "Vi el negocio *{nombre}* en Google Maps, tienen {rating} estrellas con {reviews} "
+        "resenas, muy bien. Felicidades.\n\n"
+        "Note que aun no tienen pagina web propia. Les hice una demo GRATIS de como se "
+        "podria ver su negocio en internet:\n\n"
         "{landing_url}\n\n"
-        "Si le gusta, podemos platicar del costo. Si no, queda como ejemplo.\n"
-        "¿Qué le parece?"
+        "Si les gusta platicamos el costo. Si no, de todas formas queda como ejemplo. "
+        "Que les parece?"
     ),
     "inicial_web_desactualizada": (
-        "Hola {nombre} 👋\n\n"
-        "Soy {tu_nombre} de {agencia}. Vi su negocio en Maps con {rating}★ y {reviews} reseñas. "
-        "Echo un ojo a su sitio actual y noté que se podría modernizar bastante.\n\n"
-        "Le hice una propuesta visual GRATIS de cómo se vería renovado 👇\n\n"
+        "Hola, buenos dias! Soy {tu_nombre} de {agencia}.\n\n"
+        "Vi *{nombre}* en Maps con {rating} estrellas y {reviews} resenas. "
+        "Eche un ojo a su sitio actual y creo que se puede modernizar bastante.\n\n"
+        "Les prepare una propuesta visual GRATIS de como quedaria renovado:\n\n"
         "{landing_url}\n\n"
-        "Si le interesa platicar del costo, ¡bienvenido! Si no, le queda el ejemplo."
+        "Si les interesa platicar del costo con gusto. Sin compromiso."
     ),
     "follow_up_sin_respuesta": (
-        "Hola {nombre}, le escribí hace unos días sobre la propuesta de página web 🙂\n\n"
-        "Sé que tiene mucho trabajo. ¿Le late que platiquemos 5 min para resolver dudas? "
-        "Sin compromiso.\n\n"
-        "{tu_nombre} — {agencia}"
+        "Hola! Les escribi hace unos dias sobre la propuesta de pagina web para *{nombre}*.\n\n"
+        "Se que tienen mucho trabajo. Les puedo mandar mas info o platican 5 minutos cuando "
+        "tengan chance?\n\n"
+        "Sin compromiso. Saludos, {tu_nombre} - {agencia}"
     ),
     "post_llamada_propuesta": (
-        "Hola {nombre}, gracias por la llamada 👋\n\n"
-        "Como acordamos, le adjunto la cotización formal en PDF. Cualquier duda me dice y "
-        "ajustamos.\n\n"
-        "Saludos,\n{tu_nombre} — {agencia}"
+        "Hola! Gracias por la llamada.\n\n"
+        "Como acordamos les envio la cotizacion formal. Cualquier duda me dicen y ajustamos "
+        "lo que sea.\n\n"
+        "Saludos, {tu_nombre} - {agencia}"
     ),
     "agradecimiento_visita": (
-        "Hola {nombre}, gracias por recibirme hoy 🙏\n\n"
-        "Le dejo aquí el link de la demo que vio en persona, por si quiere mostrársela a "
-        "su equipo:\n\n"
+        "Hola! Gracias por recibirme hoy.\n\n"
+        "Les dejo el link de la demo que vimos en persona, por si quieren mostrarsela "
+        "a alguien mas:\n\n"
         "{landing_url}\n\n"
-        "Cualquier cosa estoy al pendiente.\n{tu_nombre} — {agencia}"
+        "Cualquier cosa estoy al pendiente. Saludos, {tu_nombre} - {agencia}"
     ),
 }
 

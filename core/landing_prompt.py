@@ -370,29 +370,35 @@ def build_landing_prompt(business: dict) -> str:
 # IMÁGENES — REGLA CRÍTICA, sigue esto al pie de la letra
 **TODAS las imágenes DEBEN ser del giro específico del negocio.** Nada de fotos aleatorias.
 
-Usa **LoremFlickr** que sirve fotos reales por palabra clave:
+Usa **Unsplash Source** — tiene fotos curadas de alta calidad, no imágenes aleatorias de Flickr:
 ```
-https://loremflickr.com/<ancho>/<alto>/<keywords>?lock=<seed-único>
+https://source.unsplash.com/featured/<ancho>x<alto>/?<keyword>
 ```
 
-- `<keywords>` = una o más palabras separadas por comas, **siempre relevantes al giro**.
-  - Keywords base sugeridos para ESTE negocio: `{ctx['image_keywords']}`
-  - Puedes añadir más específicas según la sección (ej. `mexican-food,salsa` para una sección de salsas).
-- `<seed-único>` = un número distinto por cada imagen para que NO se repita la misma foto.
-- `<ancho>` y `<alto>` = tamaño que necesitas (ej. 800/600 para cards, 1600/900 para hero).
+Keywords disponibles para ESTE negocio (rotar uno diferente por imagen):
+`{ctx['image_keywords']}`
+
+Reglas estrictas:
+- **UN solo keyword por imagen, diferente en cada `<img>`** → así Unsplash devuelve fotos distintas.
+  Ejemplo barbería: hero→`barbershop`, card1→`haircut`, card2→`beard`, galería1→`barber`, galería2→`fade`
+  Ejemplo taquería: hero→`tacos`, card1→`mexican-food`, card2→`salsa`, galería1→`taqueria`
+- Hero: 1600x900. Cards: 800x600. Galería: 600x400. Miniaturas: 400x300.
+- NO uses `?sig=`, `?lock=`, `&` ni parámetros extra — solo `?keyword`
+- Si se te acaban los keywords del negocio, usa variantes relacionadas (ej. `men-haircut`, `barber-shop`, `grooming`)
 
 Ejemplos VÁLIDOS para este negocio:
-- Hero: `https://loremflickr.com/1600/900/{ctx['image_keywords'].split(',')[0]}?lock=1`
-- Card de servicio 1: `https://loremflickr.com/600/400/{ctx['image_keywords']}?lock=2`
-- Galería imagen 3: `https://loremflickr.com/800/600/{ctx['image_keywords']}?lock=10`
+- Hero:      `https://source.unsplash.com/featured/1600x900/?{ctx['image_keywords'].split(',')[0]}`
+- Card 1:    `https://source.unsplash.com/featured/800x600/?{ctx['image_keywords'].split(',')[min(1, len(ctx['image_keywords'].split(','))-1)]}`
+- Galería 1: `https://source.unsplash.com/featured/600x400/?{ctx['image_keywords'].split(',')[min(2, len(ctx['image_keywords'].split(','))-1)]}`
 
 ❌ PROHIBIDO:
-- `picsum.photos` (da imágenes aleatorias sin contexto)
-- `via.placeholder.com` (placeholders grises)
-- `unsplash.com/random` o keywords genéricos como "business" o "store"
+- cualquier servicio de Flickr — los tags están contaminados, devuelve fotos irrelevantes (gatos, estatuas, paisajes)
+- `picsum.photos` — aleatorio sin contexto
+- `via.placeholder.com` — placeholders grises sin valor visual
+- Repetir la misma URL en más de una imagen
 - SVG geométricos como reemplazo de fotos
 
-✅ Cada `alt=""` debe describir la imagen contextualmente (ej. `alt="Tacos al pastor recién servidos"`).
+✅ Cada `alt=""` debe describir la imagen (ej. `alt="Corte fade clásico en la barbería"`).
 
 # TONO Y CONTENIDO
 - Español de México, cálido pero profesional
