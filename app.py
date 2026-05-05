@@ -43,8 +43,9 @@ st.set_page_config(
 # ============================================================
 st.session_state.setdefault("prospects", [])
 st.session_state.setdefault("last_search", None)
-st.session_state.setdefault("preview_landing", None)         # (name, html)
-st.session_state.setdefault("editing_client_id", None)       # cliente abierto en detalle
+st.session_state.setdefault("preview_landing", None)
+st.session_state.setdefault("editing_client_id", None)
+st.session_state.setdefault("_clients_cache", None)
 
 
 # ============================================================
@@ -130,7 +131,19 @@ def _score_color(score: int | None) -> str:
 
 
 def _refresh():
+    st.session_state["_clients_cache"] = None
     st.rerun()
+
+
+def _clients() -> list[dict]:
+    """Devuelve clientes desde caché en session_state. Solo llama a Supabase una vez por sesión."""
+    if st.session_state["_clients_cache"] is None:
+        st.session_state["_clients_cache"] = clients_store.list_all()
+    return st.session_state["_clients_cache"]
+
+
+def _saved_place_ids() -> set:
+    return {c.get("place_id") for c in _clients() if c.get("place_id")}
 
 
 @st.dialog("Mensaje enviado")
@@ -152,7 +165,7 @@ def _dialog_enviado(client_id: str, name: str) -> None:
 with st.sidebar:
     st.title("🎯 Prospector Web")
     st.caption(f"**{config.AGENCY_NAME}**")
-    n_clients = len(clients_store.list_all())
+    n_clients = len(_clients())
     st.metric("👥 Clientes guardados", n_clients)
 
     if config.USE_MOCK_DATA:
@@ -282,7 +295,7 @@ with tab_search:
         total = len(prospects)
         sin_web = sum(1 for p in prospects if not p.get("website"))
         con_email = sum(1 for p in prospects if p.get("email"))
-        ya_guardados = sum(1 for p in prospects if clients_store.exists_by_place_id(p.get("place_id")))
+        ya_guardados = sum(1 for p in prospects if p.get("place_id") in _saved_place_ids())
 
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Total", total)
@@ -328,7 +341,7 @@ with tab_search:
         def _matches(p: dict) -> bool:
             if min_score and (p.get("score") or 0) < min_score:
                 return False
-            if hide_saved and clients_store.exists_by_place_id(p.get("place_id")):
+            if hide_saved and p.get("place_id") in _saved_place_ids():
                 return False
             if only_with_email and not p.get("email"):
                 return False
@@ -356,7 +369,7 @@ with tab_search:
             # Tabla
             rows = []
             for p in filtered_prospects:
-                saved = clients_store.exists_by_place_id(p.get("place_id"))
+                saved = p.get("place_id") in _saved_place_ids()
                 rows.append({
                     "": _score_color(p["score"]),
                     "Score": p["score"],
@@ -372,13 +385,33 @@ with tab_search:
             st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
 
             # ===== Guardado en lote =====
+            _saved = _saved_place_ids()
             no_guardados = [
                 p for p in filtered_prospects
-                if not clients_store.exists_by_place_id(p.get("place_id"))
+                if p.get("place_id") not in _saved
             ]
             if no_guardados:
                 with st.container(border=True):
                     st.markdown(f"**📥 Guardar en lote** _(de los {len(no_guardados)} no guardados)_")
+
+                    # Filtro por canal de contacto
+                    _canal_opts = {
+                        "📲 WhatsApp": "whatsapp",
+                        "📧 Email": "email",
+                        "🚶 Visita": "visit",
+                    }
+                    _canales_sel = st.multiselect(
+                        "Filtrar por canal de contacto",
+                        options=list(_canal_opts.keys()),
+                        default=list(_canal_opts.keys()),
+                        key="bulk_canal_filter",
+                        help="Selecciona uno o varios canales para filtrar qué prospectos guardar.",
+                    )
+                    _canales_val = {_canal_opts[k] for k in _canales_sel}
+                    no_guardados = [
+                        p for p in no_guardados
+                        if p.get("contact_channel", "whatsapp") in _canales_val
+                    ] if _canales_val else no_guardados
 
                     bl_col1, bl_col2, bl_col3 = st.columns(3)
 
@@ -462,7 +495,7 @@ with tab_search:
             iter_prospects = []
 
         for i, p in enumerate(iter_prospects):
-            saved = clients_store.exists_by_place_id(p.get("place_id"))
+            saved = p.get("place_id") in _saved_place_ids()
             place_id_top = p.get("place_id", f"idx_{i}")
             badge = " · ✅ guardado" if saved else ""
 
@@ -478,7 +511,7 @@ with tab_search:
                     if st.button("📂 Abrir cliente", key=f"qopen_{place_id_top}",
                                  use_container_width=True):
                         existing = next(
-                            (c for c in clients_store.list_all()
+                            (c for c in _clients()
                              if c.get("place_id") == p.get("place_id")),
                             None,
                         )
@@ -523,7 +556,7 @@ with tab_search:
                         st.success("Ya está en tus clientes guardados.")
                         if st.button("📂 Abrir en 'Mis clientes'", key=f"open_{place_id}", use_container_width=True):
                             existing = next(
-                                (c for c in clients_store.list_all() if c.get("place_id") == p.get("place_id")),
+                                (c for c in _clients() if c.get("place_id") == p.get("place_id")),
                                 None,
                             )
                             if existing:
@@ -543,7 +576,7 @@ with tab_search:
 # TAB 2 — MIS CLIENTES
 # ============================================================
 with tab_clients:
-    all_clients = clients_store.list_all()
+    all_clients = _clients()
 
     if not all_clients:
         st.info("Aún no has guardado clientes. Ve a la pestaña **🔍 Buscar prospectos** y guarda los que te interesen.")
@@ -909,7 +942,7 @@ with tab_clients:
 # TAB 3 — EXPORTAR
 # ============================================================
 with tab_export:
-    all_clients = clients_store.list_all()
+    all_clients = _clients()
     if not all_clients:
         st.info("Aún no hay clientes guardados para exportar.")
     else:
@@ -966,7 +999,8 @@ with tab_export:
             with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
                 for cli in all_clients:
                     prompt = build_landing_prompt(cli)
-                    filename = f"{_slugify(cli['name'])}.txt"
+                    estado = re.sub(r"[^a-z0-9]+", "_", (cli.get("estado") or "pendiente").lower()).strip("_")
+                    filename = f"{_slugify(cli['name'])}__{estado}.txt"
                     zf.writestr(filename, prompt)
             buf.seek(0)
             st.download_button(
@@ -1049,7 +1083,7 @@ with tab_automation:
     # ===== Paso 2: Filtros + selección =====
     st.markdown("#### 2️⃣ Selecciona prospectos a procesar")
 
-    all_clients = clients_store.list_all()
+    all_clients = _clients()
     if not all_clients:
         st.info("Aún no hay clientes. Importa un Excel arriba o ve a 🔍 Buscar prospectos.")
     else:
