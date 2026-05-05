@@ -1,7 +1,10 @@
 """Streamlit app — Prospector Web (RAIO Development)."""
 from __future__ import annotations
 
+import io
 import logging
+import re
+import zipfile
 from datetime import date, datetime
 from pathlib import Path
 
@@ -728,11 +731,11 @@ with tab_clients:
                         tpl_key = tpl_keys[tpl_labels.index(tpl_label)]
                     with col_t2:
                         landing_url_input = st.text_input(
-                            "URL Netlify (opcional)",
-                            value="",
+                            "URL Netlify",
+                            value=cli.get("netlify_url") or "",
                             placeholder="https://xxx.netlify.app",
                             key=f"netlify_{sel_id}",
-                            help="Cuando subas el HTML a Netlify Drop, pega aquí el link público.",
+                            help="Se rellena automáticamente si ya publicaste en Netlify. También puedes pegarlo manualmente.",
                         )
 
                     rendered = render_message(tpl_key, cli, landing_url_input)
@@ -946,6 +949,33 @@ with tab_export:
                     progress.progress(i / len(all_clients), text=f"{i}/{len(all_clients)}")
                 progress.empty()
                 st.success(f"✅ {ok} PDFs generados en `{config.PDF_DIR}`" + (f" ({fail} fallaron)" if fail else ""))
+
+        st.markdown("---")
+        st.markdown("### Prompts de Claude")
+        st.caption(
+            "Genera un archivo `.txt` por cliente con el prompt listo para pegar en claude.ai. "
+            "Todos se descargan juntos en un ZIP."
+        )
+        if st.button("📋 Exportar prompts de Claude (ZIP)", use_container_width=True):
+            def _slugify(name: str) -> str:
+                s = (name or "cliente").lower()
+                s = re.sub(r"[^a-z0-9]+", "_", s).strip("_")
+                return s or "cliente"
+
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                for cli in all_clients:
+                    prompt = build_landing_prompt(cli)
+                    filename = f"{_slugify(cli['name'])}.txt"
+                    zf.writestr(filename, prompt)
+            buf.seek(0)
+            st.download_button(
+                "⬇️ Descargar ZIP de prompts",
+                data=buf,
+                file_name=f"prompts_claude_{date.today().strftime('%Y%m%d')}.zip",
+                mime="application/zip",
+                use_container_width=True,
+            )
 
         st.markdown("---")
         st.markdown("### Resumen rápido")

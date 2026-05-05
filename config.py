@@ -9,6 +9,16 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Streamlit Cloud expone los secrets como st.secrets; los cargamos en os.environ
+# para que el resto del código los lea igual que en local.
+try:
+    import streamlit as st
+    for _k, _v in st.secrets.items():
+        if isinstance(_v, str) and _k not in os.environ:
+            os.environ[_k] = _v
+except Exception:
+    pass
+
 # ===== Paths =====
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUTS_DIR = BASE_DIR / "outputs"
@@ -25,6 +35,11 @@ OUTSCRAPER_API_KEY = os.getenv("OUTSCRAPER_API_KEY", "").strip()
 HUNTER_API_KEY = os.getenv("HUNTER_API_KEY", "").strip()
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
 NETLIFY_API_TOKEN = os.getenv("NETLIFY_API_TOKEN", "").strip()
+
+# ===== Supabase =====
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "").strip()
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "").strip()
 
 # ===== Agencia =====
 AGENCY_NAME = os.getenv("AGENCY_NAME", "RAIO Development")

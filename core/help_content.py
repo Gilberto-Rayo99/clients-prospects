@@ -19,12 +19,17 @@ les genera una landing de muestra y te arma el mensaje de WhatsApp listo para en
     {
         "title": "¿Cómo arrancar la app?",
         "content": """
-**Opción A — Icono en el escritorio (recomendada)**
+**Opción A — Versión web (acceso desde cualquier dispositivo)**
+- Entra a la URL que te compartió Gilberto desde cualquier navegador, celular o computadora
+- No necesitas instalar nada — funciona directo en el navegador
+- Tus datos se guardan en la nube (Supabase) y están disponibles desde donde sea
+
+**Opción B — Icono en el escritorio (local)**
 - Doble clic en **"Prospector Web"** en el escritorio
 - Espera ~15 segundos → el navegador se abre solo en `http://localhost:8501`
 - La ventana negra que aparece es normal — es el servidor. No la cierres.
 
-**Opción B — Terminal**
+**Opción C — Terminal**
 ```
 cd "...ruta del proyecto..."
 streamlit run app.py
@@ -122,6 +127,22 @@ En **👥 Mis clientes**, cada cliente tiene:
 - **Notas**: campo libre para escribir lo que pasó en cada contacto
 
 **Tip:** después de cada interacción actualiza el estado y escribe una nota corta. Cuando vuelvas a abrir la app sabes exactamente dónde quedaste con cada uno.
+""",
+    },
+    {
+        "title": "¿Dónde se guardan mis datos?",
+        "content": """
+Tus clientes y todo el seguimiento se guardan en **Supabase**, una base de datos en la nube.
+
+Esto significa:
+- ✅ Tus datos están disponibles desde cualquier dispositivo o navegador
+- ✅ No se pierden si reinicias la computadora o el servidor
+- ✅ Si usas la versión web y la versión local al mismo tiempo, ambas ven los mismos datos
+- ✅ El servicio es gratuito para el volumen que usamos
+
+Las landings HTML también se guardan ahí, por lo que no necesitas archivos locales para verlas o reenviarlas.
+
+**Nota:** los archivos PDF se generan en el momento — no se guardan permanentemente, se descargan directo.
 """,
     },
     {
