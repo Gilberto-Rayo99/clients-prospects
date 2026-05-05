@@ -258,11 +258,12 @@ if search_btn:
 # ============================================================
 # TABS
 # ============================================================
-tab_search, tab_clients, tab_export, tab_automation = st.tabs([
+tab_search, tab_clients, tab_export, tab_automation, tab_help = st.tabs([
     "🔍 Buscar prospectos",
     f"👥 Mis clientes ({n_clients})",
     "📤 Exportar",
     "🚀 Automatización",
+    "❓ Ayuda",
 ])
 
 
@@ -1218,6 +1219,30 @@ with tab_automation:
                                 st.error(f"❌ {msg}")
                         except Exception as e:
                             st.error(f"Error: {e}")
+
+
+# ============================================================
+# TAB 5 — AYUDA / FAQ
+# ============================================================
+with tab_help:
+    from core.help_content import HELP_SECTIONS
+
+    st.markdown("### ❓ Guía rápida — Prospector Web")
+    st.caption(
+        f"Hecha por **{config.AGENCY_NAME}** para cualquier persona que use esta app. "
+        "Lee esto si es tu primera vez o si algo no funciona como esperas."
+    )
+    st.markdown("---")
+
+    for section in HELP_SECTIONS:
+        with st.expander(section["title"], expanded=False):
+            st.markdown(section["content"])
+
+    st.markdown("---")
+    st.markdown(
+        f"**{config.AGENCY_NAME}** · {config.YOUR_NAME} · "
+        f"{config.AGENCY_PHONE} · {config.AGENCY_EMAIL}"
+    )
 
 
 st.markdown("---")
