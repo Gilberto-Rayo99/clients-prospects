@@ -9,7 +9,6 @@ from datetime import date, datetime
 from difflib import SequenceMatcher
 from pathlib import Path
 
-import pandas as pd
 import streamlit as st
 
 import config
@@ -76,6 +75,41 @@ st.session_state.setdefault("_clients_cache", None)
 # ============================================================
 # Helpers
 # ============================================================
+def _save_landing_and_optionally_publish(client_id: str, html: str, auto_publish: bool) -> None:
+    """Guarda la landing y, si `auto_publish`, la sube a Netlify de un golpe.
+
+    Diseñado para reducir el flujo manual: subir HTML → guardar → ir a tab
+    Automation → publicar. Ahora todo en un click si NETLIFY_API_TOKEN existe.
+    """
+    cli = clients_store.save_landing_html(client_id, html)
+    if not cli:
+        st.error("No pude guardar la landing.")
+        return
+
+    if not auto_publish:
+        st.success("Landing guardada.")
+        return
+
+    if not config.NETLIFY_API_TOKEN:
+        st.warning("Landing guardada (sin Netlify token configurado, no se publicó).")
+        return
+
+    try:
+        from core import netlify as _netlify
+        with st.spinner("Publicando en Netlify..."):
+            res = _netlify.publish_html(html, cli.get("name", ""), site_id=cli.get("netlify_site_id"))
+        clients_store.update(
+            client_id,
+            netlify_url=res["url"],
+            netlify_site_id=res["site_id"],
+            netlify_deploy_at=datetime.now().isoformat(timespec="seconds"),
+        )
+        st.success(f"✅ Guardada y publicada: {res['url']}")
+    except Exception as e:
+        logger.exception("Auto-publish Netlify falló")
+        st.warning(f"Landing guardada, pero falló Netlify: {e}")
+
+
 def _process_prospects(prospects: list[dict]) -> list[dict]:
     """Enriquece + scorea prospectos en paralelo.
 
@@ -459,7 +493,7 @@ with tab_search:
                     "Canal": f"{CHANNEL_ICON.get(p['contact_channel'], '?')} {p['contact_channel']}",
                     "Guardado": "✅" if saved else "—",
                 })
-            st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+            st.dataframe(rows, hide_index=True, use_container_width=True)
 
             # ===== Guardado en lote =====
             _saved = _saved_place_ids()
@@ -984,10 +1018,16 @@ with tab_clients:
                             st.caption(f"Archivo: **{uploaded.name}** · {len(html_content):,} caracteres")
                             if ok:
                                 st.success(f"✅ {msg}")
+                                _auto_pub = st.checkbox(
+                                    "🚀 Auto-publicar a Netlify al guardar",
+                                    value=bool(config.NETLIFY_API_TOKEN),
+                                    key=f"autopub_upload_{sel_id}",
+                                    disabled=not config.NETLIFY_API_TOKEN,
+                                    help="Requiere NETLIFY_API_TOKEN configurado.",
+                                )
                                 if st.button("💾 Guardar landing", key=f"saveupload_{sel_id}",
                                              type="primary", use_container_width=True):
-                                    clients_store.save_landing_html(sel_id, html_content)
-                                    st.success("Landing guardada.")
+                                    _save_landing_and_optionally_publish(sel_id, html_content, _auto_pub)
                                     _refresh()
                             else:
                                 st.error(f"❌ {msg}")
@@ -1000,14 +1040,19 @@ with tab_clients:
                             key=f"paste_{sel_id}",
                             placeholder="<!DOCTYPE html>\n<html lang=\"es\">\n  ...\n</html>",
                         )
+                        _auto_pub_paste = st.checkbox(
+                            "🚀 Auto-publicar a Netlify al guardar",
+                            value=bool(config.NETLIFY_API_TOKEN),
+                            key=f"autopub_paste_{sel_id}",
+                            disabled=not config.NETLIFY_API_TOKEN,
+                        )
                         if st.button("✅ Validar y guardar (pegado)", key=f"savehtml_{sel_id}",
                                      use_container_width=True):
                             ok, msg = validate_html(pasted)
                             if not ok:
                                 st.error(f"❌ {msg}")
                             else:
-                                clients_store.save_landing_html(sel_id, pasted)
-                                st.success(f"✅ {msg} Landing guardada.")
+                                _save_landing_and_optionally_publish(sel_id, pasted, _auto_pub_paste)
                                 _refresh()
 
                     if cli.get("landing_html"):
@@ -1121,6 +1166,35 @@ with tab_export:
                     progress.progress(i / len(all_clients), text=f"{i}/{len(all_clients)}")
                 progress.empty()
                 st.success(f"✅ {ok} PDFs generados en `{config.PDF_DIR}`" + (f" ({fail} fallaron)" if fail else ""))
+
+        st.markdown("---")
+        st.markdown("### 🔢 Recalcular scores")
+        st.caption(
+            "Si cambiaste el algoritmo de scoring (CATEGORY_TIERS, pesos…), los clientes "
+            "guardados quedan con el score viejo. Este botón los recalcula y actualiza en la DB."
+        )
+        if st.button("🔄 Recalcular scores de todos", use_container_width=True, key="recompute_scores"):
+            from core.score import calculate_score_breakdown
+            updated, unchanged, failed = 0, 0, 0
+            progress_s = st.progress(0, text="Recalculando…")
+            for i, c in enumerate(all_clients, start=1):
+                try:
+                    new_score, _ = calculate_score_breakdown(c)
+                    if new_score != c.get("score"):
+                        clients_store.update(c["id"], score=new_score)
+                        updated += 1
+                    else:
+                        unchanged += 1
+                except Exception:
+                    logger.exception("Falló recálculo de score para %s", c.get("name"))
+                    failed += 1
+                progress_s.progress(i / len(all_clients), text=f"{i}/{len(all_clients)}")
+            progress_s.empty()
+            msg = f"✅ {updated} actualizados · {unchanged} sin cambios"
+            if failed:
+                msg += f" · {failed} fallaron"
+            st.success(msg)
+            _refresh()
 
         st.markdown("---")
         st.markdown("### Prompts de Claude")
@@ -1316,61 +1390,90 @@ with tab_export:
             _cnames = ["— Sin asignar —"] + [c["name"] for c in _clist]
             _cid_map = {c["name"]: c["id"] for c in _clist}
 
-            st.markdown(f"**{len(bulk_files)} archivo(s) detectado(s)** — revisa las asignaciones:")
+            # Auto-confirmar matches ≥85% (umbral alto = pocos falsos positivos).
+            # Los <85% sí se muestran para revisión manual.
+            AUTO_CONFIRM_THRESHOLD = 0.85
+            auto_assigned: list[tuple] = []   # (uf, cliente_name)  — fuera de UI
+            ambiguous: list[tuple] = []       # (uf, best_name, score) — pide revisión
 
-            # Cabecera
-            hc1, hc2, hc3, hc4 = st.columns([3, 4, 1, 2])
-            hc1.markdown("**Archivo**")
-            hc2.markdown("**Cliente asignado**")
-            hc3.markdown("**Match**")
-            hc4.markdown("**Estado actual**")
-
-            confirmed: list[tuple] = []  # (UploadedFile, client_name)
             for uf in bulk_files:
                 best, score = _fuzzy_match_client(uf.name, _clist)
-                default_idx = (_cnames.index(best["name"])
-                               if best and best["name"] in _cnames else 0)
+                if best and score is not None and score >= AUTO_CONFIRM_THRESHOLD:
+                    auto_assigned.append((uf, best["name"], score))
+                else:
+                    ambiguous.append((uf, best["name"] if best else None, score))
 
-                c1, c2, c3, c4 = st.columns([3, 4, 1, 2])
-                with c1:
-                    ok_html, _ = validate_html(uf.read().decode("utf-8", errors="replace"))
-                    uf.seek(0)
-                    icon = "✅" if ok_html else "⚠️"
-                    st.markdown(f"{icon} `{uf.name}`")
-                with c2:
-                    selected = st.selectbox(
-                        "cliente",
-                        options=_cnames,
-                        index=default_idx,
-                        key=f"bulk_assign_{uf.name}",
-                        label_visibility="collapsed",
-                    )
-                with c3:
-                    if score:
-                        color = "green" if score >= 0.7 else "orange"
-                        st.markdown(f":{color}[{int(score * 100)}%]")
-                    else:
-                        st.markdown(":red[—]")
-                with c4:
-                    cli_estado = (
-                        next((c.get("estado", "") for c in _clist
-                              if c["name"] == selected), "")
-                        if selected != "— Sin asignar —" else ""
-                    )
-                    st.caption(cli_estado or "—")
+            # Resumen + opción de auto-publicar
+            col_b1, col_b2 = st.columns(2)
+            col_b1.metric("✅ Auto-asignados (≥85%)", len(auto_assigned))
+            col_b2.metric("⚠️ Para revisar", len(ambiguous))
 
-                if selected != "— Sin asignar —":
-                    confirmed.append((uf, selected))
+            _bulk_autopub = st.checkbox(
+                "🚀 Auto-publicar a Netlify cada landing al guardar",
+                value=False,
+                key="bulk_html_autopub",
+                disabled=not config.NETLIFY_API_TOKEN,
+                help="Si está activo, cada landing guardada se sube a Netlify automáticamente. Más lento pero ahorra clicks.",
+            )
+
+            confirmed: list[tuple] = list((uf, cname) for uf, cname, _ in auto_assigned)
+
+            if auto_assigned:
+                with st.expander(f"Ver los {len(auto_assigned)} auto-asignados"):
+                    for uf, cname, score in auto_assigned:
+                        st.write(f"✅ `{uf.name}` → **{cname}** ({int(score * 100)}%)")
+
+            if ambiguous:
+                st.markdown("**Revisa estas asignaciones:**")
+                hc1, hc2, hc3, hc4 = st.columns([3, 4, 1, 2])
+                hc1.markdown("**Archivo**")
+                hc2.markdown("**Cliente asignado**")
+                hc3.markdown("**Match**")
+                hc4.markdown("**Estado actual**")
+
+                for uf, best_name, score in ambiguous:
+                    default_idx = (_cnames.index(best_name)
+                                   if best_name and best_name in _cnames else 0)
+                    c1, c2, c3, c4 = st.columns([3, 4, 1, 2])
+                    with c1:
+                        ok_html, _ = validate_html(uf.read().decode("utf-8", errors="replace"))
+                        uf.seek(0)
+                        icon = "✅" if ok_html else "⚠️"
+                        st.markdown(f"{icon} `{uf.name}`")
+                    with c2:
+                        selected = st.selectbox(
+                            "cliente",
+                            options=_cnames,
+                            index=default_idx,
+                            key=f"bulk_assign_{uf.name}",
+                            label_visibility="collapsed",
+                        )
+                    with c3:
+                        if score:
+                            color = "orange" if score >= 0.5 else "red"
+                            st.markdown(f":{color}[{int(score * 100)}%]")
+                        else:
+                            st.markdown(":red[—]")
+                    with c4:
+                        cli_estado = (
+                            next((c.get("estado", "") for c in _clist
+                                  if c["name"] == selected), "")
+                            if selected != "— Sin asignar —" else ""
+                        )
+                        st.caption(cli_estado or "—")
+
+                    if selected != "— Sin asignar —":
+                        confirmed.append((uf, selected))
 
             n_ok = len(confirmed)
             if st.button(
-                f"💾 Guardar {n_ok} landing(s)",
+                f"💾 Guardar {n_ok} landing(s)" + (" + publicar" if _bulk_autopub else ""),
                 type="primary",
                 use_container_width=True,
                 disabled=n_ok == 0,
                 key="bulk_html_save",
             ):
-                saved_ok, saved_fail = 0, 0
+                saved_ok, saved_fail, pub_ok, pub_fail = 0, 0, 0, 0
                 for uf, cname in confirmed:
                     cid = _cid_map.get(cname)
                     if not cid:
@@ -1379,15 +1482,40 @@ with tab_export:
                     html_text = uf.read().decode("utf-8", errors="replace")
                     clients_store.save_landing_html(cid, html_text)
                     saved_ok += 1
+
+                    if _bulk_autopub and config.NETLIFY_API_TOKEN:
+                        try:
+                            from core import netlify as _netlify
+                            cli_obj = clients_store.get(cid, include_html=False) or {}
+                            res = _netlify.publish_html(
+                                html_text, cli_obj.get("name", cname),
+                                site_id=cli_obj.get("netlify_site_id"),
+                            )
+                            clients_store.update(
+                                cid,
+                                netlify_url=res["url"],
+                                netlify_site_id=res["site_id"],
+                                netlify_deploy_at=datetime.now().isoformat(timespec="seconds"),
+                            )
+                            pub_ok += 1
+                        except Exception:
+                            logger.exception("Bulk auto-publish falló para %s", cname)
+                            pub_fail += 1
+
                 if saved_ok:
-                    st.success(f"✅ {saved_ok} landing(s) guardadas y estados actualizados.")
+                    msg = f"✅ {saved_ok} landing(s) guardadas"
+                    if _bulk_autopub:
+                        msg += f" · 🚀 {pub_ok} publicadas en Netlify"
+                        if pub_fail:
+                            msg += f" ({pub_fail} fallaron)"
+                    st.success(msg)
                 if saved_fail:
                     st.warning(f"{saved_fail} no se pudieron guardar.")
                 _refresh()
 
         st.markdown("---")
         st.markdown("### Resumen rápido")
-        df = pd.DataFrame([{
+        rows_summary = [{
             "Nombre": c["name"],
             "Categoría": c.get("category"),
             "Score": c.get("score"),
@@ -1397,8 +1525,8 @@ with tab_export:
             "Próximo contacto": c.get("fecha_proximo_contacto") or "—",
             "Precio (MXN)": c.get("precio_cotizado") or "—",
             "Landing": "✅" if c.get("landing_path") else "—",
-        } for c in all_clients])
-        st.dataframe(df, hide_index=True, use_container_width=True)
+        } for c in all_clients]
+        st.dataframe(rows_summary, hide_index=True, use_container_width=True)
 
 
 # ============================================================
@@ -1568,7 +1696,7 @@ with tab_automation:
                     "URL Netlify": r.get("url") or "—",
                     "Error": r.get("error") or "",
                 })
-            st.dataframe(pd.DataFrame(res_rows), hide_index=True, use_container_width=True)
+            st.dataframe(res_rows, hide_index=True, use_container_width=True)
 
             # Botones de descarga / siguiente fase
             col_d1, col_d2 = st.columns(2)

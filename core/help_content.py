@@ -2,6 +2,35 @@
 
 HELP_SECTIONS = [
     {
+        "title": "🆕 Novedades de este release",
+        "content": """
+**1. Imágenes a medida con Gemini Nano Banana**
+- Cada landing puede llevar **8 fotos generadas a medida** del giro real del negocio (no Unsplash genérico).
+- **Cuota gratis: 100 imágenes/día**, configurable con `GEMINI_API_KEY` (sácala en https://aistudio.google.com/apikey).
+- El contador se persiste en Supabase → no se pierde aunque reinicien el servidor.
+
+**2. Lote en paralelo**
+- Pestaña Exportar → "📦 Paquetes premium en lote" genera **hasta 10 paquetes en paralelo** (1-3 min para 10 clientes).
+- Cap dinámico: solo procesa los que entran en tu cupo Gemini de hoy.
+
+**3. Auto-publicar a Netlify**
+- Al subir un HTML, hay un toggle "🚀 Auto-publicar a Netlify" → guarda + publica + URL pública en un solo click.
+- También funciona en la **carga masiva**: marca el toggle y publica todas a la vez.
+
+**4. Bulk upload con auto-asignación inteligente**
+- Si los nombres de archivo coinciden ≥85% con un cliente, se asignan **solo**. Solo revisas los ambiguos.
+
+**5. Recalcular scores en bloque**
+- Pestaña Exportar → botón "🔄 Recalcular scores de todos" si cambias el algoritmo.
+
+**6. Búsqueda 10× más rápida**
+- El enriquecimiento de prospectos ahora corre en paralelo (8 hilos): **5 min → 30 s** para 12 prospectos.
+
+**7. Prompt v2 más rico**
+- El prompt detecta automáticamente nivel de precio y horarios cuando Google Places los devuelve, y forza variación visual entre prospectos similares.
+""",
+    },
+    {
         "title": "¿Qué hace esta app?",
         "content": """
 Prospector Web busca negocios locales en Google Maps que no tienen página web o la tienen desactualizada,
@@ -51,17 +80,58 @@ streamlit run app.py
     {
         "title": "¿Cómo generar una landing y mandar WhatsApp?",
         "content": """
-1. Ve a **👥 Mis clientes** → selecciona el cliente
-2. Sub-pestaña **📋 Prompt para Claude** → copia el texto
-3. Abre **claude.ai** en otra pestaña → pega el prompt → espera la respuesta
-4. En claude.ai: descarga el HTML (botón de descarga arriba a la derecha del código)
-5. Regresa a la app → sub-pestaña **📥 Cargar HTML** → sube el archivo
-6. Sección **💬 Mensaje WhatsApp**:
-   - Elige la plantilla ("Inicial sin web" para primer contacto)
-   - Pega la URL de Netlify si ya la tienes, o deja vacío por ahora
-   - Click **📲 Abrir WhatsApp con mensaje** → se abre WhatsApp Web con el mensaje listo
-   - Revisa, ajusta si quieres, y da **Enviar** en WhatsApp
-7. De vuelta en la app → click **✅ Marcar como enviado**
+Hay **dos modos**: rápido (sin imágenes a medida) y premium (con fotos generadas por IA).
+
+**🅰️ Modo rápido (Unsplash, sin gastar cuota Gemini):**
+1. **👥 Mis clientes** → selecciona el cliente
+2. Sub-pestaña **📋 Prompt para Claude** → bloque "🅰️ Prompt rápido" → copia el texto
+3. Abre **claude.ai** → pega el prompt → descarga el HTML
+4. Regresa a la app → sub-pestaña **📥 Cargar HTML** → sube el archivo
+5. Marca **🚀 Auto-publicar a Netlify al guardar** si quieres link público al instante
+
+**🅱️ Modo premium (con imágenes generadas a medida con Gemini):**
+1. Mismo lugar, bloque "🅱️ Paquete premium" → click **📦 Generar paquete**
+2. Espera ~1-2 min mientras Gemini genera 8 fotos del giro real
+3. Click **⬇️ Descargar zip** → descomprime el archivo
+4. En **claude.ai**, nuevo chat: arrastra `prompt.txt` + todas las imágenes de `img/`
+5. Pídele "Sigue las instrucciones del prompt.txt y genera el HTML completo"
+6. Guarda el HTML como `index.html` **junto a la carpeta `img/`** del zip
+7. Vuelve a la app y súbelo en **📥 Cargar HTML**
+
+**Mensaje WhatsApp (igual para ambos modos):**
+- Elige plantilla → pega la URL Netlify (si ya publicaste) → click **📲 Abrir WhatsApp**
+- Revisa, manda → click **✅ Marcar como enviado**
+""",
+    },
+    {
+        "title": "¿Qué es el lote premium y cómo lo uso?",
+        "content": """
+Si quieres procesar **varios clientes al mismo tiempo** con imágenes Gemini:
+
+1. Pestaña **📤 Exportar** → sección **📦 Paquetes premium en lote**
+2. Filtra por estado (ej. solo "Pendiente" o "Falta landing")
+3. La app te dice cuántos paquetes alcanzan con tu cupo Gemini de hoy (100/día gratis)
+4. Click **📦 Generar N paquetes en paralelo** → ~1-3 min para 10 paquetes
+5. Click **⬇️ Descargar zip-de-zips** → te da un .zip con todos los paquetes adentro
+6. Descomprime → cada subcarpeta tiene su `prompt.txt` + `img/`
+7. Procesa cada uno en claude.ai como en el modo premium individual
+
+**Tip:** este modo aprovecha que las imágenes Gemini se generan en paralelo (10 a la vez), así que es mucho más rápido que hacer cada paquete uno por uno.
+""",
+    },
+    {
+        "title": "¿Cómo cargar muchos HTML de claude.ai a la vez?",
+        "content": """
+Cuando ya descargaste varios HTML de claude.ai (uno por cliente):
+
+1. Pestaña **📤 Exportar** → sección **📤 Carga masiva de landings**
+2. Arrastra todos los `.html` al uploader (puedes seleccionar múltiples)
+3. La app **auto-asigna** los archivos al cliente correcto si el nombre del archivo coincide ≥85% con el nombre del cliente
+4. Los que tienen menos del 85% aparecen para revisión manual
+5. Marca **🚀 Auto-publicar a Netlify** si quieres que cada landing se publique al guardar
+6. Click **💾 Guardar N landing(s)**
+
+**Tip:** nombra los archivos como el cliente (ej. `tacos-el-compa.html`) para que el fuzzy match acierte sin que tengas que revisar nada.
 """,
     },
     {

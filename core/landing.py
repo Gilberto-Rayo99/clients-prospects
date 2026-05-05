@@ -287,6 +287,7 @@ DATOS DEL NEGOCIO
 - **Teléfono:** {{TELEFONO}}
 - **Web actual:** {{WEB_ACTUAL}}
 - **Rating Google Maps:** {{RATING}} ({{RESEÑAS}} reseñas)
+{{SEÑALES_EXTRA}}- **Hash de variación:** {{HASH_VARIACION}} ← úsalo solo para asegurar que dos prospectos similares NO produzcan el mismo HTML (ajusta orden de secciones, copy, microcopy, formas de cards). NO menciones el hash en el HTML.
 - **Paleta sugerida (puedes ajustarla si el arquetipo lo pide):**
   - Primario: {{COLOR_PRIMARIO}}
   - Acento: {{COLOR_ACENTO}}
@@ -526,6 +527,43 @@ def _build_prompt_v2(
     rating = business.get("rating") if business.get("rating") is not None else "—"
     reviews = business.get("reviews_count") or 0
 
+    # ===== Señales extra opcionales (si Google Places las trajo) =====
+    extras_lines: list[str] = []
+    price_level = business.get("price_level")
+    if price_level is not None:
+        price_map = {
+            0: "$ — económico (refleja accesibilidad, no austeridad)",
+            1: "$ — económico",
+            2: "$$ — medio (la mayoría de comercios locales)",
+            3: "$$$ — medio-alto / premium (justifica diseño editorial)",
+            4: "$$$$ — alto / lujo",
+        }
+        extras_lines.append(f"- **Nivel de precio (Maps):** {price_map.get(int(price_level), price_level)}")
+
+    horario = business.get("opening_hours") or business.get("horario")
+    if horario:
+        if isinstance(horario, list):
+            horario_str = " · ".join(str(h) for h in horario[:3])
+        else:
+            horario_str = str(horario)
+        extras_lines.append(f"- **Horario:** {horario_str}")
+
+    # Frases de reseñas (si las tenemos): ayudan al modelo a captar tono real.
+    reviews_quotes = business.get("review_quotes")
+    if reviews_quotes:
+        if isinstance(reviews_quotes, list):
+            sample = " | ".join(str(q)[:120] for q in reviews_quotes[:3])
+        else:
+            sample = str(reviews_quotes)[:300]
+        extras_lines.append(f"- **Frases de reseñas reales:** {sample}")
+
+    senales_extra = ("\n".join(extras_lines) + "\n") if extras_lines else ""
+
+    # ===== Hash corto para forzar variación entre prospectos similares =====
+    import hashlib as _hashlib
+    seed = f"{name}|{business.get('place_id', '')}|{rating}|{reviews}"
+    hash_var = _hashlib.md5(seed.encode("utf-8")).hexdigest()[:8]
+
     disponibles, instrucciones = _build_image_block(gemini_imgs, category)
 
     replacements = {
@@ -545,6 +583,8 @@ def _build_prompt_v2(
         "{{COLOR_BORDES}}":            palette["border"],
         "{{IMAGENES_DISPONIBLES}}":    disponibles,
         "{{INSTRUCCIONES_IMG}}":       instrucciones,
+        "{{SEÑALES_EXTRA}}":           senales_extra,
+        "{{HASH_VARIACION}}":          hash_var,
         "{{AGENCIA}}":                 config.AGENCY_NAME,
     }
 

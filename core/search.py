@@ -302,6 +302,7 @@ def _search_google_places(
                     "name", "formatted_address", "formatted_phone_number",
                     "international_phone_number", "rating", "user_ratings_total",
                     "website", "geometry", "url",
+                    "price_level", "opening_hours",
                 ],
                 language="es",
             ).get("result", {})
@@ -314,6 +315,10 @@ def _search_google_places(
             d.get("geometry", {}).get("location", {})
             or r.get("geometry", {}).get("location", {})
         )
+        # opening_hours.weekday_text es la lista textual de horarios
+        oh = d.get("opening_hours") or {}
+        hours_text = oh.get("weekday_text") if isinstance(oh, dict) else None
+
         out.append({
             "name": d.get("name") or r.get("name", ""),
             "address": d.get("formatted_address") or r.get("formatted_address", ""),
@@ -326,6 +331,8 @@ def _search_google_places(
             "lng": loc.get("lng"),
             "maps_url": d.get("url") or f"https://www.google.com/maps/place/?q=place_id:{place_id}",
             "category": category,
+            "price_level": d.get("price_level"),
+            "opening_hours": hours_text,
         })
 
     logger.info(
