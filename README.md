@@ -46,6 +46,20 @@ Se abre en `http://localhost:8501`.
 
 Cuando tengas alguna, ponla en `.env` y cambia `USE_MOCK_DATA=false`.
 
+## Seguridad de Supabase
+
+La app usa hoy `SUPABASE_SERVICE_KEY` (bypassa RLS). Si filtras esa key, la DB
+queda expuesta. Mitigaciones aplicadas:
+- `.env` y `.streamlit/secrets.toml` están en `.gitignore`.
+- En Streamlit Cloud, las keys van en el panel de **Secrets** (nunca en repo).
+- El login de la app usa `secrets.compare_digest` (anti-timing attack).
+- **Rota la `SUPABASE_SERVICE_KEY` cada 30-60 días** desde Supabase Dashboard →
+  Project Settings → API → "Roll JWT secret".
+
+Para endurecer aún más (cuando estés listo): aplicar
+`supabase_schema_with_auth.sql` para pasar a ANON_KEY + RLS por usuario auth.
+El archivo trae los pasos exactos.
+
 ## Estructura
 
 ```

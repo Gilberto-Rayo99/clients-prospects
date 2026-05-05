@@ -23,13 +23,19 @@ build/
 
 # ===== Outputs generados =====
 outputs/landings/*.html
+outputs/landings/img/
 outputs/excel/*.xlsx
 outputs/pdf/*.pdf
 outputs/clients.json
 outputs/.cache_search/
+outputs/.gemini_usage.json
 !outputs/landings/.gitkeep
 !outputs/excel/.gitkeep
 !outputs/pdf/.gitkeep
+
+# ===== Supabase CLI scratch =====
+supabase/.temp/
+supabase/.branches/
 
 # ===== Build / .exe =====
 build/

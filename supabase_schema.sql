@@ -43,3 +43,16 @@ CREATE TABLE IF NOT EXISTS clients (
 
 -- RLS activado (solo service_role puede acceder — las llaves anon no tienen acceso)
 ALTER TABLE clients ENABLE ROW LEVEL SECURITY;
+
+
+-- ============================================================
+-- Tabla key-value para estado pequeño que debe sobrevivir reboots
+-- (cuota Gemini, flags, etc.). Usada por core/app_kv.py.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS app_kv (
+  key        TEXT PRIMARY KEY,
+  value      JSONB NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE app_kv ENABLE ROW LEVEL SECURITY;

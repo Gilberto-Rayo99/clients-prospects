@@ -6,7 +6,6 @@ y caemos a Unsplash Source si falla.
 """
 from __future__ import annotations
 
-import json
 import logging
 import re
 import threading
@@ -15,6 +14,7 @@ from pathlib import Path
 from typing import Optional
 
 import config
+from core import app_kv
 
 logger = logging.getLogger(__name__)
 
@@ -22,52 +22,23 @@ logger = logging.getLogger(__name__)
 IMG_ROOT = config.LANDINGS_DIR / "img"
 IMG_ROOT.mkdir(parents=True, exist_ok=True)
 
-USAGE_FILE = config.OUTPUTS_DIR / ".gemini_usage.json"
-
-# Lock global para serializar lecturas/escrituras del contador de cuota
-# cuando se ejecutan paquetes en paralelo desde varios threads.
+# Lock para serializar el read-modify-write del contador cuando varios
+# threads corren en paralelo (las llamadas Gemini son secuenciales por
+# paquete pero los paquetes corren en paralelo).
 _USAGE_LOCK = threading.Lock()
 
 
+def _usage_key() -> str:
+    """Key de app_kv para el contador del día. Formato `gemini_usage:YYYY-MM-DD`."""
+    return f"gemini_usage:{date.today().isoformat()}"
+
+
 # ============================================================
-# Contador diario de cuota
+# Contador diario de cuota (persistido en app_kv → Supabase si está disponible,
+# JSON local si no). Sobrevive reboots de Streamlit Cloud.
 # ============================================================
-def _read_usage() -> dict:
-    if not USAGE_FILE.exists():
-        return {}
-    try:
-        return json.loads(USAGE_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-
-
-def _write_usage(data: dict) -> None:
-    try:
-        USAGE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception as e:
-        logger.warning("No pude guardar uso de Gemini: %s", e)
-
-
-def _today_key() -> str:
-    return date.today().isoformat()
-
-
 def _get_used_today() -> int:
-    with _USAGE_LOCK:
-        return int(_read_usage().get(_today_key(), 0))
-
-
-def _bump_used_today(n: int = 1) -> int:
-    with _USAGE_LOCK:
-        data = _read_usage()
-        key = _today_key()
-        data[key] = int(data.get(key, 0)) + n
-        # Mantén solo los últimos 30 días para no inflar el archivo
-        keys_sorted = sorted(data.keys())
-        for k in keys_sorted[:-30]:
-            data.pop(k, None)
-        _write_usage(data)
-        return data[key]
+    return int(app_kv.get(_usage_key(), 0) or 0)
 
 
 def remaining_today() -> int:
@@ -79,19 +50,16 @@ def reserve(n: int) -> int:
 
     Devuelve cuántas pudo reservar (puede ser menos si el cupo no alcanza).
     Pensado para paralelo: el caller llama `reserve(8)` antes de lanzar el
-    paquete; si devuelve menos de 8, ese paquete sabrá que parte caerá a
-    Unsplash. Si después no consume todas las reservadas (ej. por cache
-    o error) puede llamar `release` para devolverlas.
+    paquete; si devuelve menos de 8, parte del paquete caerá a Unsplash.
+    Si después no consume todas las reservadas (cache hit o error) puede
+    llamar `release` para devolverlas.
     """
     with _USAGE_LOCK:
-        data = _read_usage()
-        key = _today_key()
-        used = int(data.get(key, 0))
+        used = _get_used_today()
         avail = max(0, config.GEMINI_DAILY_BUDGET - used)
         granted = min(avail, max(0, n))
         if granted > 0:
-            data[key] = used + granted
-            _write_usage(data)
+            app_kv.set(_usage_key(), used + granted)
         return granted
 
 
@@ -100,11 +68,8 @@ def release(n: int) -> None:
     if n <= 0:
         return
     with _USAGE_LOCK:
-        data = _read_usage()
-        key = _today_key()
-        used = int(data.get(key, 0))
-        data[key] = max(0, used - n)
-        _write_usage(data)
+        used = _get_used_today()
+        app_kv.set(_usage_key(), max(0, used - n))
 
 
 # ============================================================

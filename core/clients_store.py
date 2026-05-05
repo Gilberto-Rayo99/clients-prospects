@@ -121,32 +121,66 @@ def _json_write(data: dict) -> None:
     )
 
 
+# Columnas "ligeras": excluyen campos pesados como `landing_html` (50-200 KB
+# por fila). Se usan en `list_all` por defecto para que la tabla cargue rápido
+# y no consuma RAM. El HTML completo se baja bajo demanda con `get(id, include_html=True)`.
+_LIGHT_COLUMNS = (
+    "id,fecha_guardado,fecha_modificado,name,category,address,phone,email,"
+    "website,rating,reviews_count,place_id,lat,lng,maps_url,social_links,"
+    "score,contact_channel,contact_value,landing_path,netlify_url,"
+    "netlify_site_id,netlify_deploy_at,estado,notas,fecha_proximo_contacto,"
+    "precio_cotizado,pdf_path"
+)
+
+
+def _strip_html(records: list[dict]) -> list[dict]:
+    """Elimina `landing_html` de cada registro (para el fallback JSON)."""
+    return [{k: v for k, v in r.items() if k != "landing_html"} for r in records]
+
+
 # ============================================================
 # CRUD — API pública (misma interfaz para Supabase y JSON)
 # ============================================================
-def list_all() -> list[dict]:
+def list_all(include_html: bool = False) -> list[dict]:
+    """Lista todos los clientes.
+
+    Por defecto NO incluye el campo `landing_html` (puede pesar cientos de KB
+    por fila). Pasa `include_html=True` solo si realmente lo necesitas.
+    """
+    cols = "*" if include_html else _LIGHT_COLUMNS
+
     if _use_supabase():
         try:
-            res = _client().table("clients").select("*").order("fecha_guardado", desc=True).execute()
+            res = (
+                _client().table("clients")
+                .select(cols)
+                .order("fecha_guardado", desc=True)
+                .execute()
+            )
             return res.data or []
         except Exception as e:
             logger.exception("Supabase list_all falló: %s", e)
             return []
     with _LOCK:
-        return list(_json_read().get("clients", []))
+        records = list(_json_read().get("clients", []))
+        return records if include_html else _strip_html(records)
 
 
-def get(client_id: str) -> Optional[dict]:
+def get(client_id: str, include_html: bool = True) -> Optional[dict]:
+    """Trae un cliente específico. `include_html=True` por defecto porque
+    cuando pides un cliente individual normalmente vas a verlo/editarlo."""
+    cols = "*" if include_html else _LIGHT_COLUMNS
+
     if _use_supabase():
         try:
-            res = _client().table("clients").select("*").eq("id", client_id).execute()
+            res = _client().table("clients").select(cols).eq("id", client_id).execute()
             return res.data[0] if res.data else None
         except Exception as e:
             logger.exception("Supabase get falló: %s", e)
             return None
-    for c in list_all():
+    for c in list_all(include_html=True):
         if c["id"] == client_id:
-            return c
+            return c if include_html else {k: v for k, v in c.items() if k != "landing_html"}
     return None
 
 
@@ -248,8 +282,12 @@ def save_landing_html(client_id: str, html: str) -> Optional[dict]:
     if not cli:
         return None
 
-    landing_path = None
-    if not _use_supabase():
+    # `landing_path` se usa además como marcador "tiene landing" en listas
+    # ligeras (donde no traemos el HTML). En Supabase usamos un marker lógico.
+    if _use_supabase():
+        landing_path = f"supabase://clients/{client_id}/landing.html"
+    else:
+        landing_path = None
         try:
             slug = _slugify(cli.get("name", "cliente"))
             path = config.LANDINGS_DIR / f"{slug}.html"

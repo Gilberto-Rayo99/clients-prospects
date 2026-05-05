@@ -726,7 +726,7 @@ def export_landing_packages_parallel(
         {name, ok, images, error}.
     """
     import concurrent.futures
-    import io
+    import shutil
     import tempfile
     import threading
     import zipfile
@@ -734,72 +734,90 @@ def export_landing_packages_parallel(
     if not businesses:
         raise ValueError("Lista de prospectos vacía")
 
-    tmp_root = Path(tempfile.mkdtemp(prefix="landing_pkgs_"))
-    final_zip_path = tmp_root / "landing_packages.zip"
+    # Carpeta persistente para el zip final (no temp): se queda dentro de
+    # outputs/ para que el usuario pueda descargar incluso después de que
+    # Streamlit haga rerun. Reusamos una única ruta y la sobrescribimos.
+    out_dir = config.OUTPUTS_DIR / "lotes"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    final_zip_path = out_dir / f"landing_packages_{date.today().isoformat()}.zip"
+
     results: list[dict] = []
     results_lock = threading.Lock()
-
-    def _worker(biz: dict) -> dict:
-        name = biz.get("name", "(sin nombre)")
-        try:
-            zip_bytes, meta = export_landing_package(biz)
-            # Persistir en disco temporal en vez de mantener bytes en memoria
-            slug = meta.get("slug") or _slugify(name)
-            inner_path = tmp_root / f"{slug}__{biz.get('place_id') or biz.get('id', 'x')}.zip"
-            inner_path.write_bytes(zip_bytes)
-            return {
-                "name": name,
-                "ok": True,
-                "inner_path": inner_path,
-                "slug": slug,
-                "images": meta.get("images_generated", 0),
-                "error": None,
-            }
-        except Exception as e:
-            logger.exception("Falló paquete para %s", name)
-            return {
-                "name": name,
-                "ok": False,
-                "inner_path": None,
-                "slug": _slugify(name),
-                "images": 0,
-                "error": str(e),
-            }
-
     total = len(businesses)
     done = 0
 
-    # Ejecutar en paralelo. ThreadPool porque las llamadas Gemini son I/O-bound.
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = {pool.submit(_worker, b): b for b in businesses}
-        for fut in concurrent.futures.as_completed(futures):
-            res = fut.result()
-            with results_lock:
-                results.append(res)
-                done += 1
-                if progress_cb:
-                    try:
-                        progress_cb(done, total, res["name"])
-                    except Exception:
-                        pass  # nunca dejar caer un fallo de UI
+    # Trabajamos en un TemporaryDirectory: se borra solo al salir del with,
+    # incluso si hay excepción. Adiós a la basura en %TEMP%.
+    with tempfile.TemporaryDirectory(prefix="landing_pkgs_") as tmp_str:
+        tmp_root = Path(tmp_str)
 
-    # Zip-de-zips final, también en disco para no llenar RAM
-    with zipfile.ZipFile(final_zip_path, "w", zipfile.ZIP_DEFLATED) as outer:
-        # Manifest legible para el usuario
-        manifest_lines = [
-            f"# Lote de paquetes generado el {date.today().isoformat()}",
-            f"# Total: {total} prospectos · OK: {sum(1 for r in results if r['ok'])} · "
-            f"Errores: {sum(1 for r in results if not r['ok'])}",
-            "",
-        ]
-        for r in results:
-            status = "OK" if r["ok"] else f"ERROR: {r['error']}"
-            manifest_lines.append(f"- {r['name']:40s} → {r['images']} imgs · {status}")
-        outer.writestr("MANIFEST.txt", "\n".join(manifest_lines))
+        def _worker(biz: dict) -> dict:
+            name = biz.get("name", "(sin nombre)")
+            try:
+                zip_bytes, meta = export_landing_package(biz)
+                slug = meta.get("slug") or _slugify(name)
+                inner_path = tmp_root / f"{slug}__{biz.get('place_id') or biz.get('id', 'x')}.zip"
+                inner_path.write_bytes(zip_bytes)
+                return {
+                    "name": name,
+                    "ok": True,
+                    "inner_path": inner_path,
+                    "slug": slug,
+                    "images": meta.get("images_generated", 0),
+                    "error": None,
+                }
+            except Exception as e:
+                logger.exception("Falló paquete para %s", name)
+                return {
+                    "name": name,
+                    "ok": False,
+                    "inner_path": None,
+                    "slug": _slugify(name),
+                    "images": 0,
+                    "error": str(e),
+                }
 
-        for r in results:
-            if r["ok"] and r["inner_path"] and r["inner_path"].exists():
-                arcname = f"{r['slug']}.zip"
-                outer.write(r["inner_path"], arcname=arcname)
+        # Ejecución paralela. ThreadPool porque las llamadas Gemini son I/O-bound.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {pool.submit(_worker, b): b for b in businesses}
+            for fut in concurrent.futures.as_completed(futures):
+                res = fut.result()
+                with results_lock:
+                    results.append(res)
+                    done += 1
+                    if progress_cb:
+                        try:
+                            progress_cb(done, total, res["name"])
+                        except Exception:
+                            pass  # nunca dejar caer un fallo de UI
+
+        # Zip-de-zips final, escrito a la ruta persistente
+        with zipfile.ZipFile(final_zip_path, "w", zipfile.ZIP_DEFLATED) as outer:
+            manifest_lines = [
+                f"# Lote de paquetes generado el {date.today().isoformat()}",
+                f"# Total: {total} prospectos · OK: {sum(1 for r in results if r['ok'])} · "
+                f"Errores: {sum(1 for r in results if not r['ok'])}",
+                "",
+            ]
+            for r in results:
+                status = "OK" if r["ok"] else f"ERROR: {r['error']}"
+                manifest_lines.append(f"- {r['name']:40s} → {r['images']} imgs · {status}")
+            outer.writestr("MANIFEST.txt", "\n".join(manifest_lines))
+
+            for r in results:
+                if r["ok"] and r["inner_path"] and r["inner_path"].exists():
+                    arcname = f"{r['slug']}.zip"
+                    outer.write(r["inner_path"], arcname=arcname)
+
+        # tmp_root se autoborra al cerrar el with — gracias TemporaryDirectory.
+
+    # Limpieza eventual de lotes viejos en out_dir (>7 días) para no inflar disco
+    try:
+        import time
+        for old in out_dir.glob("landing_packages_*.zip"):
+            if time.time() - old.stat().st_mtime > 7 * 86400:
+                old.unlink(missing_ok=True)
+    except Exception:
+        pass
 
     return final_zip_path, results

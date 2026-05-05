@@ -45,6 +45,8 @@ st.set_page_config(
 _APP_PASSWORD = config.APP_PASSWORD
 
 if _APP_PASSWORD:
+    import secrets as _secrets
+
     st.session_state.setdefault("authenticated", False)
 
     if not st.session_state["authenticated"]:
@@ -52,7 +54,8 @@ if _APP_PASSWORD:
         st.markdown("## 🔒 Prospector Web")
         pwd = st.text_input("Contraseña", type="password", placeholder="Ingresa la contraseña...")
         if st.button("Entrar", type="primary", use_container_width=True):
-            if pwd == _APP_PASSWORD:
+            # compare_digest evita timing attacks (compara siempre todos los bytes)
+            if _secrets.compare_digest(pwd or "", _APP_PASSWORD):
                 st.session_state["authenticated"] = True
                 st.rerun()
             else:
@@ -74,17 +77,44 @@ st.session_state.setdefault("_clients_cache", None)
 # Helpers
 # ============================================================
 def _process_prospects(prospects: list[dict]) -> list[dict]:
-    out = []
-    for b in prospects:
-        b = enrich_contact(b)
-        score, breakdown = calculate_score_breakdown(b)
-        b["score"] = score
-        b["score_breakdown"] = breakdown
-        contact = suggest_contact_channel(b)
-        b["contact_channel"] = contact["channel"]
-        b["contact_value"] = contact["value"]
-        out.append(b)
-    out.sort(key=lambda x: x["score"], reverse=True)
+    """Enriquece + scorea prospectos en paralelo.
+
+    El cuello de botella es `enrich_contact` (HTTP a webs + APIs externas):
+    I/O-bound, así que un ThreadPool acelera mucho. 8 workers es seguro:
+    los APIs externos lo soportan y el GIL no estorba en I/O.
+    """
+    import concurrent.futures
+
+    if not prospects:
+        return []
+
+    def _enrich_one(b: dict) -> dict:
+        try:
+            b = enrich_contact(b)
+        except Exception:
+            logger.exception("enrich_contact falló para %s", b.get("name"))
+        try:
+            score, breakdown = calculate_score_breakdown(b)
+            b["score"] = score
+            b["score_breakdown"] = breakdown
+        except Exception:
+            logger.exception("score falló para %s", b.get("name"))
+            b.setdefault("score", 0)
+            b.setdefault("score_breakdown", {})
+        try:
+            contact = suggest_contact_channel(b)
+            b["contact_channel"] = contact["channel"]
+            b["contact_value"] = contact["value"]
+        except Exception:
+            logger.exception("contact falló para %s", b.get("name"))
+        return b
+
+    workers = min(8, max(1, len(prospects)))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        # map preserva el orden de entrada (no importa, ordenamos al final)
+        out = list(pool.map(_enrich_one, prospects))
+
+    out.sort(key=lambda x: x.get("score", 0), reverse=True)
     return out
 
 
@@ -1366,7 +1396,7 @@ with tab_export:
             "Teléfono": c.get("phone") or "—",
             "Próximo contacto": c.get("fecha_proximo_contacto") or "—",
             "Precio (MXN)": c.get("precio_cotizado") or "—",
-            "Landing": "✅" if c.get("landing_html") else "—",
+            "Landing": "✅" if c.get("landing_path") else "—",
         } for c in all_clients])
         st.dataframe(df, hide_index=True, use_container_width=True)
 
@@ -1458,9 +1488,9 @@ with tab_automation:
 
         # Métricas
         c_total = len(candidatos)
-        c_with_landing = sum(1 for c in candidatos if c.get("landing_html"))
+        c_with_landing = sum(1 for c in candidatos if c.get("landing_path"))
         c_with_phone = sum(1 for c in candidatos if c.get("phone"))
-        c_ready = sum(1 for c in candidatos if c.get("landing_html") and c.get("phone"))
+        c_ready = sum(1 for c in candidatos if c.get("landing_path") and c.get("phone"))
         c_pending_landing = c_total - c_with_landing
 
         m1, m2, m3, m4 = st.columns(4)
