@@ -117,37 +117,40 @@ WHATSAPP_TEMPLATES = {
     "inicial_sin_web": (
         "Hola, buenos dias! Soy {tu_nombre} de {agencia}.\n\n"
         "Vi el negocio *{nombre}* en Google Maps, tienen {rating} estrellas con {reviews} "
-        "resenas, muy bien. Felicidades.\n\n"
-        "Note que aun no tienen pagina web propia. Les hice una demo GRATIS de como se "
-        "podria ver su negocio en internet:\n\n"
+        "resenas. Muy buen trabajo, felicidades.\n\n"
+        "Note que aun no tienen pagina web propia. Les prepare una demo GRATIS de como "
+        "podria verse su negocio en internet:\n\n"
         "{landing_url}\n\n"
-        "Si les gusta platicamos el costo. Si no, de todas formas queda como ejemplo. "
-        "Que les parece?"
+        "La inversion arranca en *$3,000 pesos*, el precio final depende de lo que "
+        "necesiten (secciones extra, dominio propio, correo profesional, etc.).\n\n"
+        "Si les gusta la demo platicamos sin compromiso. Que les parece?"
     ),
     "inicial_web_desactualizada": (
         "Hola, buenos dias! Soy {tu_nombre} de {agencia}.\n\n"
         "Vi *{nombre}* en Maps con {rating} estrellas y {reviews} resenas. "
-        "Eche un ojo a su sitio actual y creo que se puede modernizar bastante.\n\n"
+        "Vi su sitio actual y creo que se puede modernizar bastante para que "
+        "les traiga mas clientes.\n\n"
         "Les prepare una propuesta visual GRATIS de como quedaria renovado:\n\n"
         "{landing_url}\n\n"
-        "Si les interesa platicar del costo con gusto. Sin compromiso."
+        "La inversion arranca en *$3,000 pesos* y sube segun los extras que "
+        "necesiten. Sin compromiso, si les late platicamos."
     ),
     "follow_up_sin_respuesta": (
         "Hola! Les escribi hace unos dias sobre la propuesta de pagina web para *{nombre}*.\n\n"
-        "Se que tienen mucho trabajo. Les puedo mandar mas info o platican 5 minutos cuando "
-        "tengan chance?\n\n"
+        "Se que tienen mucho trabajo. Si tienen 5 minutos con gusto les explico como "
+        "funciona y cuanto cobraria exactamente.\n\n"
         "Sin compromiso. Saludos, {tu_nombre} - {agencia}"
     ),
     "post_llamada_propuesta": (
         "Hola! Gracias por la llamada.\n\n"
-        "Como acordamos les envio la cotizacion formal. Cualquier duda me dicen y ajustamos "
-        "lo que sea.\n\n"
+        "Como acordamos les envio la cotizacion formal con todos los detalles. "
+        "Cualquier duda me dicen y ajustamos lo que sea.\n\n"
         "Saludos, {tu_nombre} - {agencia}"
     ),
     "agradecimiento_visita": (
         "Hola! Gracias por recibirme hoy.\n\n"
         "Les dejo el link de la demo que vimos en persona, por si quieren mostrarsela "
-        "a alguien mas:\n\n"
+        "a alguien mas del equipo:\n\n"
         "{landing_url}\n\n"
         "Cualquier cosa estoy al pendiente. Saludos, {tu_nombre} - {agencia}"
     ),

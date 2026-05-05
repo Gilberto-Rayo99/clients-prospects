@@ -130,6 +130,19 @@ def _refresh():
     st.rerun()
 
 
+@st.dialog("Mensaje enviado")
+def _dialog_enviado(client_id: str, name: str) -> None:
+    """Popup de confirmación al marcar mensaje como enviado."""
+    st.success(f"Mensaje marcado como enviado para **{name}**.")
+    st.markdown(
+        "El estado cambio a **Mensaje enviado**.\n\n"
+        "Recuerda anotar cualquier detalle importante en las *Notas* del cliente."
+    )
+    if st.button("Cerrar", type="primary", use_container_width=True):
+        clients_store.update(client_id, estado="Mensaje enviado")
+        st.rerun()
+
+
 # ============================================================
 # Sidebar
 # ============================================================
@@ -744,9 +757,7 @@ with tab_clients:
                     with col_wa2:
                         if st.button("✅ Marcar como enviado", key=f"sent_{sel_id}",
                                      use_container_width=True):
-                            clients_store.update(sel_id, estado="Mensaje enviado")
-                            st.success("Estado actualizado a 'Mensaje enviado'")
-                            _refresh()
+                            _dialog_enviado(sel_id, cli.get("name", ""))
 
                 # ===== Landing =====
                 st.markdown("---")
@@ -1159,9 +1170,7 @@ with tab_automation:
                         st.link_button("📲 Enviar", r["wa_url"], use_container_width=True)
                     with col_c:
                         if st.button("✅ Enviado", key=f"sent_auto_{r['id']}", use_container_width=True):
-                            clients_store.update(r["id"], estado="Mensaje enviado")
-                            st.toast("Marcado como enviado")
-                            _refresh()
+                            _dialog_enviado(r["id"], r.get("name", ""))
 
         # ===== Fase B: subir landings pendientes =====
         if st.session_state.get("auto_show_phase_b"):
