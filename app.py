@@ -613,10 +613,16 @@ with tab_clients:
 
                 with col_right:
                     st.markdown("### 📌 Seguimiento")
+                    _current_estado = cli.get("estado", "Pendiente")
+                    _estado_options = clients_store.CLIENT_STATUSES
+                    _estado_idx = (
+                        _estado_options.index(_current_estado)
+                        if _current_estado in _estado_options else 0
+                    )
                     new_estado = st.selectbox(
                         "Estado",
-                        options=clients_store.CLIENT_STATUSES,
-                        index=clients_store.CLIENT_STATUSES.index(cli.get("estado", "Pendiente")),
+                        options=_estado_options,
+                        index=_estado_idx,
                         key=f"estado_{sel_id}",
                     )
                     next_default = None

@@ -166,12 +166,15 @@ WHATSAPP_TEMPLATE_LABELS = {
 # ============================================================
 PIPELINE_STAGES = [
     ("Pendiente",          "⚪", 0),
-    ("Mensaje enviado",    "📤", 1),
-    ("Respondió",          "💬", 2),
-    ("Llamada/visita",     "📞", 3),
-    ("Propuesta enviada",  "📋", 4),
-    ("Negociación",        "🤝", 5),
-    ("Cerrado",            "✅", 6),
+    ("Falta landing",      "🖼", 1),
+    ("Mensaje listo",      "📲", 2),
+    ("Mensaje enviado",    "📤", 3),
+    ("Respondió",          "💬", 4),
+    ("Llamada/visita",     "📞", 5),
+    ("Propuesta enviada",  "📋", 6),
+    ("Negociación",        "🤝", 7),
+    ("Cerrado",            "✅", 8),
+    ("Sin teléfono",       "📵", -1),
     ("Descartado",         "❌", -1),
 ]
 
