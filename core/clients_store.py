@@ -95,6 +95,9 @@ def _build_client_record(business: dict) -> dict:
         # Landing
         "landing_html": None,
         "landing_path": None,
+        "netlify_url": None,
+        "netlify_site_id": None,
+        "netlify_deploy_at": None,
         # Seguimiento (campos editables por el usuario)
         "estado": "Pendiente",
         "notas": "",

@@ -245,10 +245,11 @@ if search_btn:
 # ============================================================
 # TABS
 # ============================================================
-tab_search, tab_clients, tab_export = st.tabs([
+tab_search, tab_clients, tab_export, tab_automation = st.tabs([
     "🔍 Buscar prospectos",
     f"👥 Mis clientes ({n_clients})",
     "📤 Exportar",
+    "🚀 Automatización",
 ])
 
 
@@ -942,6 +943,266 @@ with tab_export:
             "Landing": "✅" if c.get("landing_html") else "—",
         } for c in all_clients])
         st.dataframe(df, hide_index=True, use_container_width=True)
+
+
+# ============================================================
+# TAB 4 — AUTOMATIZACIÓN MASIVA
+# ============================================================
+with tab_automation:
+    st.markdown("### 🚀 Automatización masiva de prospectos")
+    st.caption(
+        "Sube un Excel exportado de la app, selecciona prospectos y deja que el "
+        "sistema los publique en Netlify y arme los links de WhatsApp listos para enviar."
+    )
+
+    # Validación de configuración
+    if not config.NETLIFY_API_TOKEN:
+        st.error(
+            "❌ `NETLIFY_API_TOKEN` no está configurado en `.env`. "
+            "Sin él, no se pueden publicar las landings automáticamente."
+        )
+        st.stop()
+
+    # Estado del tab
+    st.session_state.setdefault("auto_imported_ids", [])
+    st.session_state.setdefault("auto_results", [])
+
+    # ===== Paso 1: Subir Excel =====
+    st.markdown("#### 1️⃣ Subir Excel de prospectos")
+
+    excel_uploaded = st.file_uploader(
+        "Arrastra el archivo `.xlsx` exportado de la pestaña Exportar",
+        type=["xlsx"],
+        key="auto_excel_upload",
+    )
+
+    if excel_uploaded is not None:
+        # Guardar temporal
+        tmp_path = config.EXCEL_DIR / f"_upload_{excel_uploaded.name}"
+        tmp_path.write_bytes(excel_uploaded.read())
+
+        if st.button("📥 Importar a Mis clientes", type="primary"):
+            try:
+                from core.automation import import_excel_to_store
+                with st.spinner("Importando..."):
+                    result = import_excel_to_store(str(tmp_path))
+                st.success(
+                    f"✅ Importación completada: {result['imported']} nuevos, "
+                    f"{result['already_existed']} ya existían "
+                    f"({result['rows_total']} filas totales en el Excel)"
+                )
+                _refresh()
+            except Exception as e:
+                logger.exception("Falló import Excel")
+                st.error(f"Error al importar: {e}")
+
+    st.markdown("---")
+
+    # ===== Paso 2: Filtros + selección =====
+    st.markdown("#### 2️⃣ Selecciona prospectos a procesar")
+
+    all_clients = clients_store.list_all()
+    if not all_clients:
+        st.info("Aún no hay clientes. Importa un Excel arriba o ve a 🔍 Buscar prospectos.")
+    else:
+        f1, f2, f3 = st.columns(3)
+        with f1:
+            min_score_auto = st.slider("Score mínimo", 1, 10, 7, key="auto_min_score")
+        with f2:
+            estados_filtro = st.multiselect(
+                "Solo estados",
+                options=["Pendiente", "Mensaje listo", "Falta landing", "Sin teléfono", "Mensaje enviado"],
+                default=["Pendiente", "Falta landing"],
+                key="auto_estados",
+            )
+        with f3:
+            cats_filtro = st.multiselect(
+                "Solo categorías (vacío = todas)",
+                options=config.CATEGORIES,
+                default=[],
+                key="auto_cats",
+            )
+
+        candidatos = [
+            c for c in all_clients
+            if (c.get("score") or 0) >= min_score_auto
+            and (not estados_filtro or c.get("estado") in estados_filtro)
+            and (not cats_filtro or c.get("category") in cats_filtro)
+        ]
+
+        # Métricas
+        c_total = len(candidatos)
+        c_with_landing = sum(1 for c in candidatos if c.get("landing_html"))
+        c_with_phone = sum(1 for c in candidatos if c.get("phone"))
+        c_ready = sum(1 for c in candidatos if c.get("landing_html") and c.get("phone"))
+        c_pending_landing = c_total - c_with_landing
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Candidatos", c_total)
+        m2.metric("Listos para procesar", c_ready, help="Con landing + teléfono")
+        m3.metric("Falta landing", c_pending_landing)
+        m4.metric("Sin teléfono", c_total - c_with_phone)
+
+        if c_total == 0:
+            st.warning("Ningún cliente cumple los filtros.")
+            st.stop()
+
+        # Plantilla
+        tpl_keys_auto = list(config.WHATSAPP_TEMPLATES.keys())
+        tpl_label = st.selectbox(
+            "Plantilla de mensaje WhatsApp para todos",
+            options=[config.WHATSAPP_TEMPLATE_LABELS[k] for k in tpl_keys_auto],
+            index=0,
+            key="auto_tpl",
+        )
+        tpl_key_auto = tpl_keys_auto[
+            [config.WHATSAPP_TEMPLATE_LABELS[k] for k in tpl_keys_auto].index(tpl_label)
+        ]
+
+        # ===== Fase A: procesar =====
+        st.markdown("---")
+        st.markdown("#### 3️⃣ Fase A — Publicar landings y armar mensajes")
+        st.caption(
+            f"Se procesarán **{c_ready}** clientes con landing + teléfono. "
+            f"Los **{c_pending_landing}** sin landing quedarán marcados para Fase B."
+        )
+
+        col_run1, col_run2 = st.columns([3, 1])
+        with col_run2:
+            run_auto = st.button(
+                "🚀 Iniciar pipeline",
+                type="primary",
+                use_container_width=True,
+                disabled=(c_total == 0),
+            )
+
+        if run_auto:
+            from core.automation import run_phase_a
+            ids = [c["id"] for c in candidatos]
+            progress_bar = st.progress(0, text="Iniciando...")
+            status_box = st.empty()
+
+            def _on_progress(idx: int, total: int, msg: str) -> None:
+                progress_bar.progress(idx / total, text=f"{idx}/{total} — {msg}")
+
+            try:
+                results = run_phase_a(ids, template_key=tpl_key_auto, progress_cb=_on_progress)
+                st.session_state["auto_results"] = results
+                progress_bar.empty()
+                ok = sum(1 for r in results if r.get("ok"))
+                pendientes = sum(1 for r in results if r.get("estado") == "Falta landing")
+                err = sum(1 for r in results if not r.get("ok") and r.get("estado") != "Falta landing")
+                st.success(f"✅ Pipeline completado: **{ok}** listos, **{pendientes}** sin landing, **{err}** errores")
+            except Exception as e:
+                progress_bar.empty()
+                logger.exception("Pipeline falló")
+                st.error(f"Error: {e}")
+
+        # ===== Resultados =====
+        if st.session_state["auto_results"]:
+            st.markdown("---")
+            st.markdown("#### 📋 Resultados")
+
+            res_rows = []
+            for r in st.session_state["auto_results"]:
+                res_rows.append({
+                    "OK": "✅" if r.get("ok") else ("⏳" if r.get("estado") == "Falta landing" else "❌"),
+                    "Nombre": r.get("name"),
+                    "Estado": r.get("estado"),
+                    "URL Netlify": r.get("url") or "—",
+                    "Error": r.get("error") or "",
+                })
+            st.dataframe(pd.DataFrame(res_rows), hide_index=True, use_container_width=True)
+
+            # Botones de descarga / siguiente fase
+            col_d1, col_d2 = st.columns(2)
+            with col_d1:
+                if st.button("📊 Generar Excel actualizado", use_container_width=True):
+                    from core.automation import regenerate_excel_from_store
+                    ids = [r["id"] for r in st.session_state["auto_results"]]
+                    path = regenerate_excel_from_store(only_ids=ids)
+                    with open(path, "rb") as f:
+                        st.download_button(
+                            "⬇️ Descargar",
+                            data=f.read(),
+                            file_name=Path(path).name,
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        )
+
+            with col_d2:
+                pendientes = [r for r in st.session_state["auto_results"]
+                              if r.get("estado") == "Falta landing"]
+                if pendientes and st.button(
+                    f"📥 Ver {len(pendientes)} pendientes de landing",
+                    use_container_width=True,
+                ):
+                    # Cambiar al modo Fase B abajo
+                    st.session_state["auto_show_phase_b"] = True
+                    _refresh()
+
+            # Listos para WhatsApp: mostrar links
+            listos = [r for r in st.session_state["auto_results"] if r.get("ok") and r.get("wa_url")]
+            if listos:
+                st.markdown("---")
+                st.markdown(f"#### 💬 {len(listos)} mensajes listos para enviar")
+                for r in listos:
+                    col_a, col_b, col_c = st.columns([3, 1, 1])
+                    with col_a:
+                        st.markdown(f"**{r['name']}** · [{r['url']}]({r['url']})")
+                    with col_b:
+                        st.link_button("📲 Enviar", r["wa_url"], use_container_width=True)
+                    with col_c:
+                        if st.button("✅ Enviado", key=f"sent_auto_{r['id']}", use_container_width=True):
+                            clients_store.update(r["id"], estado="Mensaje enviado")
+                            st.toast("Marcado como enviado")
+                            _refresh()
+
+        # ===== Fase B: subir landings pendientes =====
+        if st.session_state.get("auto_show_phase_b"):
+            st.markdown("---")
+            st.markdown("#### 📥 Fase B — Cargar landings pendientes")
+            st.caption(
+                "Para cada uno: copia el prompt → pégalo en claude.ai → descarga "
+                "el HTML → súbelo aquí. Cuando termines, vuelve a la Fase A."
+            )
+
+            from core.landing_prompt import build_landing_prompt
+
+            pendientes_ids = [
+                r["id"] for r in st.session_state["auto_results"]
+                if r.get("estado") == "Falta landing"
+            ]
+            for cid in pendientes_ids:
+                cli_p = clients_store.get(cid)
+                if not cli_p:
+                    continue
+                if cli_p.get("landing_html"):
+                    continue  # Ya se cargó
+
+                with st.expander(f"⏳ {cli_p['name']} — falta HTML"):
+                    st.text_area(
+                        "Prompt",
+                        value=build_landing_prompt(cli_p),
+                        height=200,
+                    )
+                    upl = st.file_uploader(
+                        "Sube el HTML descargado",
+                        type=["html", "htm"],
+                        key=f"upl_phaseb_{cid}",
+                    )
+                    if upl is not None:
+                        try:
+                            html_text = upl.read().decode("utf-8", errors="replace")
+                            from core.html_validator import validate_html
+                            ok, msg = validate_html(html_text)
+                            if ok:
+                                clients_store.save_landing_html(cid, html_text)
+                                st.success(f"✅ {cli_p['name']} — landing guardada")
+                                _refresh()
+                            else:
+                                st.error(f"❌ {msg}")
+                        except Exception as e:
+                            st.error(f"Error: {e}")
 
 
 st.markdown("---")

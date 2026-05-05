@@ -24,6 +24,7 @@ GOOGLE_PLACES_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY", "").strip()
 OUTSCRAPER_API_KEY = os.getenv("OUTSCRAPER_API_KEY", "").strip()
 HUNTER_API_KEY = os.getenv("HUNTER_API_KEY", "").strip()
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
+NETLIFY_API_TOKEN = os.getenv("NETLIFY_API_TOKEN", "").strip()
 
 # ===== Agencia =====
 AGENCY_NAME = os.getenv("AGENCY_NAME", "RAIO Development")

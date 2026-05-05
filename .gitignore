@@ -37,6 +37,10 @@ dist/
 *.spec.bak
 Tacos*.html
 
+# ===== Excels temporales =====
+prospectos_*.xlsx
+outputs/excel/_upload_*
+
 # ===== IDE =====
 .vscode/
 .idea/
