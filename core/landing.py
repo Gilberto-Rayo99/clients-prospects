@@ -287,7 +287,7 @@ DATOS DEL NEGOCIO
   - Texto oscuro: {{COLOR_TEXTO_OSCURO}}
   - Texto secundario: {{COLOR_TEXTO_SECUNDARIO}}
   - Bordes: {{COLOR_BORDES}}
-- **Keywords Unsplash disponibles:** {{KEYWORDS_UNSPLASH}}
+- **Imágenes disponibles:** {{IMAGENES_DISPONIBLES}}
 
 ═══════════════════════════════════════════════
 FASE 1 — DIRECCIÓN DE ARTE (OBLIGATORIA, ANTES DEL HTML)
@@ -392,16 +392,11 @@ FASE 2 — REQUISITOS TÉCNICOS (no negociables)
 FASE 3 — IMÁGENES (regla estricta)
 ═══════════════════════════════════════════════
 
-Usa Unsplash Source con UN keyword distinto por imagen:
-```
-https://source.unsplash.com/featured/<ancho>x<alto>/?<keyword>
-```
+{{INSTRUCCIONES_IMG}}
 
-- Tamaños: hero 1600x900, cards 800x600, galería 600x400, miniaturas 400x300.
-- Sin parámetros extra (`?sig=`, `?lock=`, `&` están prohibidos).
-- Cada `<img>` debe tener un keyword DIFERENTE de los disponibles + variantes relacionadas si se acaban.
-- alt descriptivo y específico ("Mastín atendido en consulta de rutina", no "perro").
+- alt descriptivo y específico en español ("Cliente recibiendo afeitado clásico con navaja", no "barbería").
 - Prohibido: picsum, via.placeholder, Flickr, repetir URLs, SVG geométricos como reemplazo de fotos reales.
+- Prohibido inventar rutas locales que no estén en la lista de "Imágenes disponibles".
 
 ═══════════════════════════════════════════════
 FASE 4 — TONO Y CONTENIDO
@@ -444,13 +439,69 @@ Sin texto previo. Sin texto posterior. Sin bloques de código markdown. Solo el 
 """
 
 
-def _build_prompt_v2(business: dict) -> str:
-    """Sustituye los placeholders {{...}} del template con datos del negocio."""
-    category = business.get("category", "Otros")
-    palette = _palette_for(category)
+def _build_image_block(
+    gemini_imgs: dict[str, str] | None,
+    category: str,
+) -> tuple[str, str]:
+    """Construye los bloques `IMAGENES_DISPONIBLES` e `INSTRUCCIONES_IMG`.
+
+    - Si hay imágenes Gemini → priorizarlas, dar lista exacta de rutas locales.
+      Para huecos no cubiertos, autorizar Unsplash con keywords del giro.
+    - Si no hay nada → instrucciones puras de Unsplash (modo legacy).
+    """
     keywords = CATEGORY_UNSPLASH_KEYWORDS.get(category, CATEGORY_UNSPLASH_KEYWORDS["Otros"])
 
-    # giro real: por ahora derivado de categoría + nombre, deja que el modelo afine
+    if gemini_imgs:
+        # Lista de rutas locales generadas para este negocio
+        lines = [f"- `{slot}` → `{path}`" for slot, path in gemini_imgs.items()]
+        disponibles = (
+            "Tienes IMÁGENES REALES generadas a medida para este negocio "
+            "(usa estas rutas locales tal cual, son relativas al HTML):\n"
+            + "\n".join(lines)
+            + f"\n\nKeywords Unsplash de respaldo (úsalos SOLO si necesitas "
+            f"más imágenes que las generadas): {', '.join(keywords)}"
+        )
+        instrucciones = (
+            "Tienes imágenes REALES, hechas a medida, listadas arriba. "
+            "USA ESAS RUTAS LOCALES TAL CUAL en los `<img src=\"...\">` "
+            "(son relativas al HTML que vas a generar). NO les agregues "
+            "dominios, NO las reemplaces por Unsplash, NO inventes rutas "
+            "que no estén en la lista.\n\n"
+            "- El slot `hero` es la imagen principal del Hero (1600x900, panorámica).\n"
+            "- Los slots `service-1..N` son para sección de servicios/menú/cards (800x600).\n"
+            "- Los slots `gallery-1..N` son para galería visual del lugar (600x400).\n\n"
+            "Si necesitas imágenes adicionales que no estén en la lista, "
+            "y SOLO en ese caso, usa Unsplash Source con UN keyword distinto:\n"
+            "```\nhttps://source.unsplash.com/featured/<ancho>x<alto>/?<keyword>\n```\n"
+            "- Sin parámetros extra (`?sig=`, `?lock=`, `&` están prohibidos)."
+        )
+    else:
+        disponibles = (
+            f"No hay imágenes pregeneradas. Usa Unsplash Source con estos "
+            f"keywords del giro: {', '.join(keywords)}"
+        )
+        instrucciones = (
+            "Usa Unsplash Source con UN keyword distinto por imagen:\n"
+            "```\nhttps://source.unsplash.com/featured/<ancho>x<alto>/?<keyword>\n```\n\n"
+            "- Tamaños: hero 1600x900, cards 800x600, galería 600x400, miniaturas 400x300.\n"
+            "- Sin parámetros extra (`?sig=`, `?lock=`, `&` están prohibidos).\n"
+            "- Cada `<img>` debe tener un keyword DIFERENTE de los disponibles + "
+            "variantes relacionadas si se acaban."
+        )
+    return disponibles, instrucciones
+
+
+def _build_prompt_v2(business: dict, gemini_imgs: dict[str, str] | None = None) -> str:
+    """Sustituye los placeholders {{...}} del template con datos del negocio.
+
+    Args:
+        business: datos del negocio.
+        gemini_imgs: dict {slot: ruta_relativa} si Gemini generó imágenes
+            para este negocio. None → solo Unsplash.
+    """
+    category = business.get("category", "Otros")
+    palette = _palette_for(category)
+
     name = business.get("name", "")
     giro_real = f"{category} — interpreta el carácter (barrio, premium, tradicional, moderno) a partir del nombre '{name}' y la zona"
 
@@ -458,6 +509,8 @@ def _build_prompt_v2(business: dict) -> str:
     phone = business.get("phone") or "no disponible"
     rating = business.get("rating") if business.get("rating") is not None else "—"
     reviews = business.get("reviews_count") or 0
+
+    disponibles, instrucciones = _build_image_block(gemini_imgs, category)
 
     replacements = {
         "{{NOMBRE}}":                  name,
@@ -474,7 +527,8 @@ def _build_prompt_v2(business: dict) -> str:
         "{{COLOR_TEXTO_OSCURO}}":      palette["text_dark"],
         "{{COLOR_TEXTO_SECUNDARIO}}":  palette["text_soft"],
         "{{COLOR_BORDES}}":            palette["border"],
-        "{{KEYWORDS_UNSPLASH}}":       ", ".join(keywords),
+        "{{IMAGENES_DISPONIBLES}}":    disponibles,
+        "{{INSTRUCCIONES_IMG}}":       instrucciones,
         "{{AGENCIA}}":                 config.AGENCY_NAME,
     }
 
@@ -484,12 +538,12 @@ def _build_prompt_v2(business: dict) -> str:
     return out
 
 
-def _claude_landing_html(business: dict) -> str:
+def _claude_landing_html(business: dict, gemini_imgs: dict[str, str] | None = None) -> str:
     """Genera la landing usando claude-sonnet-4-5 con el prompt v2 (director de arte)."""
     import anthropic
 
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
-    prompt = _build_prompt_v2(business)
+    prompt = _build_prompt_v2(business, gemini_imgs=gemini_imgs)
 
     msg = client.messages.create(
         model=config.CLAUDE_MODEL,
@@ -524,9 +578,22 @@ def generate_landing(business: dict) -> tuple[str, str]:
         logger.info("Sin ANTHROPIC_API_KEY → mock para %s", business.get("name"))
         html = _mock_landing_html(business)
     else:
+        # 1) Generar imágenes a medida con Gemini (si hay key + cuota)
+        gemini_imgs: dict[str, str] | None = None
+        try:
+            from core import images as _img
+            gemini_imgs = _img.generate_business_images(business)
+            if gemini_imgs:
+                logger.info("Gemini generó %d imágenes para %s",
+                            len(gemini_imgs), business.get("name"))
+        except Exception as e:
+            logger.exception("Falló generación de imágenes Gemini: %s", e)
+            gemini_imgs = None
+
+        # 2) Pedir HTML a Claude pasándole las rutas locales
         logger.info("Generando landing con Claude para %s", business.get("name"))
         try:
-            html = _claude_landing_html(business)
+            html = _claude_landing_html(business, gemini_imgs=gemini_imgs)
         except Exception as e:
             logger.exception("Falló Claude, fallback a mock: %s", e)
             html = _mock_landing_html(business)
