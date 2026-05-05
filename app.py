@@ -258,7 +258,15 @@ if search_btn:
                 cat_label_for_state = category
 
             processed = _process_prospects(raw)
+            total_raw = len(processed)
             processed = _apply_smart_filter(processed, smart_filter_key)
+            if total_raw > 0 and len(processed) == 0:
+                st.warning(
+                    f"Se encontraron **{total_raw} negocios** pero el filtro "
+                    f"**{smart_filter_label}** los eliminó todos (probable causa: todos "
+                    f"tienen página web o score bajo). Cambia el filtro a **'Todos'** en "
+                    f"el sidebar y busca de nuevo."
+                )
             st.session_state["prospects"] = processed
             st.session_state["last_search"] = {
                 "zone": zone, "radius_km": radius_km,
@@ -987,9 +995,26 @@ with tab_export:
         st.markdown("### Prompts de Claude")
         st.caption(
             "Genera un archivo `.txt` por cliente con el prompt listo para pegar en claude.ai. "
-            "Todos se descargan juntos en un ZIP."
+            "Filtra por estado y descarga solo los que necesitas."
         )
-        if st.button("📋 Exportar prompts de Claude (ZIP)", use_container_width=True):
+
+        _all_estados = sorted({c.get("estado") or "Pendiente" for c in all_clients})
+        _estados_prompt = st.multiselect(
+            "Filtrar por estado",
+            options=_all_estados,
+            default=_all_estados,
+            key="zip_estados_filter",
+            help="Selecciona los estados que quieres incluir en el ZIP.",
+        )
+
+        _clientes_zip = [c for c in all_clients if (c.get("estado") or "Pendiente") in _estados_prompt]
+        st.caption(f"Se incluirán **{len(_clientes_zip)}** de {len(all_clients)} clientes.")
+
+        if st.button(
+            f"📋 Exportar prompts de Claude — {len(_clientes_zip)} clientes (ZIP)",
+            use_container_width=True,
+            disabled=not _clientes_zip,
+        ):
             def _slugify(name: str) -> str:
                 s = (name or "cliente").lower()
                 s = re.sub(r"[^a-z0-9]+", "_", s).strip("_")
@@ -997,7 +1022,7 @@ with tab_export:
 
             buf = io.BytesIO()
             with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-                for cli in all_clients:
+                for cli in _clientes_zip:
                     prompt = build_landing_prompt(cli)
                     estado = re.sub(r"[^a-z0-9]+", "_", (cli.get("estado") or "pendiente").lower()).strip("_")
                     filename = f"{_slugify(cli['name'])}__{estado}.txt"
