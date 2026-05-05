@@ -9,15 +9,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Streamlit Cloud expone los secrets como st.secrets; los cargamos en os.environ
-# para que el resto del código los lea igual que en local.
-try:
-    import streamlit as st
-    for _k, _v in st.secrets.items():
-        if isinstance(_v, str) and _k not in os.environ:
-            os.environ[_k] = _v
-except Exception:
-    pass
 
 # ===== Paths =====
 BASE_DIR = Path(__file__).resolve().parent
