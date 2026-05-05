@@ -149,6 +149,55 @@ def export_to_excel(prospects: list[dict]) -> str:
     dv.add(f"N2:N{last_row}")
     ws.add_data_validation(dv)
 
+    # ================================================================
+    # Hoja "Prompts" — un prompt completo por cliente (lista para pegar)
+    # ================================================================
+    try:
+        from core.landing_prompt import build_landing_prompt
+        ws_prompts = wb.create_sheet("Prompts para Claude")
+
+        prompt_headers = [
+            ("Nombre", 32),
+            ("Categoría", 22),
+            ("Score", 8),
+            ("Prompt completo (copiar y pegar en claude.ai)", 120),
+        ]
+        for col_idx, (name, width) in enumerate(prompt_headers, start=1):
+            cell = ws_prompts.cell(row=1, column=col_idx, value=name)
+            cell.font = Font(bold=True, color="FFFFFF", size=11)
+            cell.fill = FILL_HEADER
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            cell.border = THIN_BORDER
+            ws_prompts.column_dimensions[get_column_letter(col_idx)].width = width
+        ws_prompts.row_dimensions[1].height = 32
+        ws_prompts.freeze_panes = "A2"
+
+        for row_idx, p in enumerate(prospects, start=2):
+            try:
+                prompt_text = build_landing_prompt(p)
+            except Exception as e:
+                logger.warning("No pude generar prompt para %s: %s", p.get("name"), e)
+                prompt_text = f"(Error generando prompt: {e})"
+
+            values = [
+                p.get("name", ""),
+                p.get("category", ""),
+                p.get("score") or 0,
+                prompt_text,
+            ]
+            for col_idx, val in enumerate(values, start=1):
+                cell = ws_prompts.cell(row=row_idx, column=col_idx, value=val)
+                cell.border = THIN_BORDER
+                if col_idx == 4:
+                    cell.alignment = Alignment(vertical="top", wrap_text=True)
+                else:
+                    cell.alignment = Alignment(vertical="top", horizontal="left")
+            # Altura de fila proporcional al contenido (mínimo 200, máximo 600)
+            estimated = max(200, min(600, len(prompt_text) // 8))
+            ws_prompts.row_dimensions[row_idx].height = estimated
+    except Exception as e:
+        logger.exception("Falló la hoja de Prompts: %s", e)
+
     # Hoja resumen
     ws2 = wb.create_sheet("Resumen")
     total = len(prospects)

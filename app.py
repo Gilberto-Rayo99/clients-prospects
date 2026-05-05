@@ -753,9 +753,17 @@ with tab_clients:
                 ])
 
                 with tab_prompt:
-                    st.caption("Copia este prompt, pégalo en claude.ai (Pro/Max), copia el HTML que te devuelva, y pégalo en la pestaña **📥 Cargar HTML**.")
+                    st.caption(
+                        "Prompt **generado en vivo** desde los datos actuales del cliente "
+                        "(nombre, categoría, dirección, rating, reseñas). Cópialo, pégalo "
+                        "en claude.ai (Pro/Max), copia el HTML que te devuelva, y súbelo "
+                        "en la pestaña **📥 Cargar HTML**."
+                    )
                     prompt_text = build_landing_prompt(cli)
-                    st.text_area("Prompt", value=prompt_text, height=380, key=f"prompt_{sel_id}")
+                    # Sin `key=` a propósito — si la ponemos, Streamlit cachea el valor
+                    # inicial y no se refresca cuando el cliente cambia (nombre, datos…).
+                    st.text_area("Prompt", value=prompt_text, height=380)
+                    st.caption(f"💡 Longitud: **{len(prompt_text):,}** caracteres · Cliente: **{cli['name']}**")
                     with st.expander("📦 Datos del negocio en JSON (opcional, para proyectos custom)"):
                         st.code(build_short_summary(cli), language="json")
 
