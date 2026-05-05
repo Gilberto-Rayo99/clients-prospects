@@ -42,7 +42,7 @@ Se abre en `http://localhost:8501`.
 | `GOOGLE_PLACES_API_KEY` | Búsqueda de negocios reales | $200/mes |
 | `OUTSCRAPER_API_KEY` | Email del negocio (1ª opción) | Sí, limitado |
 | `HUNTER_API_KEY` | Email del negocio (fallback) | 25/mes |
-| `ANTHROPIC_API_KEY` | Generar landings con Claude | Sin tier gratis |
+| `GEMINI_API_KEY` | Imágenes a medida para landings (Nano Banana) | 100 imgs/día |
 
 Cuando tengas alguna, ponla en `.env` y cambia `USE_MOCK_DATA=false`.
 

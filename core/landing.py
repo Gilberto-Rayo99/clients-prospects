@@ -1,4 +1,10 @@
-"""Generación de landing HTML con Claude API (con mock para desarrollo)."""
+"""Generación de landings: prompt v2 + paquetes para subir a claude.ai.
+
+- `generate_landing` → HTML mock placeholder (sin APIs externas).
+- `export_landing_package` → zip con prompt.txt + imágenes Gemini para
+  un solo prospecto.
+- `export_landing_packages_parallel` → zip-de-zips para un lote.
+"""
 from __future__ import annotations
 
 import logging
@@ -548,66 +554,20 @@ def _build_prompt_v2(
     return out
 
 
-def _claude_landing_html(business: dict, gemini_imgs: dict[str, str] | None = None) -> str:
-    """Genera la landing usando claude-sonnet-4-5 con el prompt v2 (director de arte)."""
-    import anthropic
-
-    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
-    prompt = _build_prompt_v2(business, gemini_imgs=gemini_imgs)
-
-    msg = client.messages.create(
-        model=config.CLAUDE_MODEL,
-        max_tokens=16000,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    text = "".join(b.text for b in msg.content if hasattr(b, "text"))
-
-    # Quitar fences markdown si Claude los metió por error
-    text = re.sub(r"^```(?:html)?\s*\n", "", text.strip())
-    text = re.sub(r"\n```\s*$", "", text)
-
-    # Capturar desde el primer comentario HTML (dirección de arte) si existe,
-    # si no, desde <!DOCTYPE html>. Hasta </html>.
-    m = re.search(r"(<!--.*?-->\s*)?<!DOCTYPE html>.*?</html>", text, re.DOTALL | re.IGNORECASE)
-    return m.group(0) if m else text
-
-
 # ============================================================
-# Punto de entrada
+# Punto de entrada — landing mock (placeholder gratis, sin API)
 # ============================================================
 def generate_landing(business: dict) -> tuple[str, str]:
-    """Genera el HTML y lo guarda en outputs/landings/.
+    """Genera un HTML placeholder local y lo guarda en outputs/landings/.
 
-    Decide la fuente según `ANTHROPIC_API_KEY` (no según USE_MOCK_DATA, para
-    permitir el flujo real de Google Places + landing mock al mismo tiempo).
+    No llama a APIs externas. Sirve como landing inicial mientras el usuario
+    genera la versión final con Gemini + claude.ai (ver `export_landing_package`).
 
     Returns:
         (html_string, ruta_archivo_guardado)
     """
-    if not config.ANTHROPIC_API_KEY:
-        logger.info("Sin ANTHROPIC_API_KEY → mock para %s", business.get("name"))
-        html = _mock_landing_html(business)
-    else:
-        # 1) Generar imágenes a medida con Gemini (si hay key + cuota)
-        gemini_imgs: dict[str, str] | None = None
-        try:
-            from core import images as _img
-            gemini_imgs = _img.generate_business_images(business)
-            if gemini_imgs:
-                logger.info("Gemini generó %d imágenes para %s",
-                            len(gemini_imgs), business.get("name"))
-        except Exception as e:
-            logger.exception("Falló generación de imágenes Gemini: %s", e)
-            gemini_imgs = None
-
-        # 2) Pedir HTML a Claude pasándole las rutas locales
-        logger.info("Generando landing con Claude para %s", business.get("name"))
-        try:
-            html = _claude_landing_html(business, gemini_imgs=gemini_imgs)
-        except Exception as e:
-            logger.exception("Falló Claude, fallback a mock: %s", e)
-            html = _mock_landing_html(business)
-
+    logger.info("Generando landing mock para %s", business.get("name"))
+    html = _mock_landing_html(business)
     slug = _slugify(business.get("name", "negocio"))
     path = config.LANDINGS_DIR / f"{slug}.html"
     path.write_text(html, encoding="utf-8")

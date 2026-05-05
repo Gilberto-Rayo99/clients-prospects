@@ -24,7 +24,6 @@ for _d in (LANDINGS_DIR, EXCEL_DIR, PDF_DIR):
 GOOGLE_PLACES_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY", "").strip()
 OUTSCRAPER_API_KEY = os.getenv("OUTSCRAPER_API_KEY", "").strip()
 HUNTER_API_KEY = os.getenv("HUNTER_API_KEY", "").strip()
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 NETLIFY_API_TOKEN = os.getenv("NETLIFY_API_TOKEN", "").strip()
 APP_PASSWORD = os.getenv("APP_PASSWORD", "").strip()
@@ -42,9 +41,6 @@ AGENCY_WEBSITE = os.getenv("AGENCY_WEBSITE", "")
 
 # ===== Modo mock =====
 USE_MOCK_DATA = os.getenv("USE_MOCK_DATA", "true").lower() in ("true", "1", "yes")
-
-# ===== Modelo Claude =====
-CLAUDE_MODEL = "claude-sonnet-4-5"
 
 # ===== Gemini Image (Nano Banana) =====
 GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image"

@@ -3,27 +3,27 @@
 
 ---
 
-## ⚠️ Flujo correcto de generación de landings (LEE ESTO PRIMERO)
+## ⚠️ Flujo de generación de landings (LEE ESTO PRIMERO)
 
-El flujo actual en `core/landing.py` que llama a la **API de Claude** desde la app es un atajo legacy. El flujo **correcto y deseado por el usuario** es:
+La app **NO llama a la API de Anthropic**. La generación del HTML se delega a claude.ai (web) por decisión consciente del usuario. El flujo es:
 
-1. **App (Streamlit) hace SOLO dos cosas:**
-   - Genera el `prompt.txt` v2 personalizado al contexto del negocio (arquetipo, paleta, secciones, etc.) usando la lógica que ya está en `core/landing.py::_build_prompt_v2`.
-   - Genera las imágenes a medida con **Gemini 2.5 Flash Image (Nano Banana)** vía `GEMINI_API_KEY` y las guarda en `outputs/landings/img/{place_id}/`.
-   - **Exporta** un paquete: `prompt.txt` + carpeta de imágenes (idealmente un `.zip` descargable desde la UI).
+1. **App (Streamlit)** prepara el material:
+   - Construye un `prompt.txt` v2 personalizado al contexto del negocio
+     (arquetipo visual, paleta, secciones por giro) — `core/landing.py::_build_prompt_v2`.
+   - Genera 8 imágenes a medida con **Gemini 2.5 Flash Image (Nano Banana)** —
+     `core/images.py::generate_business_images`. Cuota: 100 imgs/día gratis.
+   - Empaqueta `prompt.txt` + `img/*.png` en un `.zip` descargable —
+     `core/landing.py::export_landing_package` (uno) o
+     `export_landing_packages_parallel` (lote en paralelo).
 
-2. **El usuario (Gilberto)** toma ese paquete y lo sube a **claude.ai (Claude Design / claude.ai con artifacts)** manualmente. Ahí Claude genera el HTML final, referenciando las imágenes Gemini en vez de Unsplash.
+2. **Usuario** sube el `.zip` (o sus contenidos) a **claude.ai (Pro/Max)** en un chat,
+   pega el prompt y descarga el HTML resultante. Ese HTML va a la pestaña
+   📥 Cargar HTML del prospecto.
 
-**Por qué este flujo, no el actual:**
-- claude.ai (web) tiene mejores capacidades de diseño que la API directa para artifacts/HTML largos, y no consume créditos de la API.
-- Mantiene la app gratis (solo Gemini cuesta cuota, y son 100/día gratis).
-- El usuario ya paga claude.ai, aprovecha esa suscripción en lugar de pagar API por cada landing.
-
-**Tareas pendientes para alinear el código a este flujo (cuando se pida):**
-- En `app.py`: cambiar el botón "Generar landing" para que en vez de llamar a `_claude_landing_html`, exporte un `.zip` con `prompt.txt` + `img/*.png`.
-- En `core/landing.py`: dejar `_build_prompt_v2` como función pública, pero la llamada a `client.messages.create` (Anthropic) puede quedar como modo opcional / debug, no por default.
-- Mantener `core/images.py` como está (es la pieza que sí queda en la app).
-- El paso de subir a claude.ai es manual, no automatizar.
+**Por qué así:**
+- claude.ai genera artifacts/HTML largos sin consumir créditos de API.
+- La app se mantiene **free cost** (solo Gemini, y es gratis hasta 100/día).
+- El paso de subir a claude.ai es manual a propósito — no se automatiza.
 
 ---
 
@@ -88,7 +88,7 @@ prospector-web/
 GOOGLE_PLACES_API_KEY=
 OUTSCRAPER_API_KEY=
 HUNTER_API_KEY=
-ANTHROPIC_API_KEY=
+GEMINI_API_KEY=          # Nano Banana, 100 imgs/día gratis
 ```
 
 El archivo `.env.example` debe existir con las keys vacías. El `.env` real va en `.gitignore`.
@@ -123,12 +123,19 @@ El archivo `.env.example` debe existir con las keys vacías. El `.env` real va e
 - Score mínimo 1, máximo 10
 
 ### `core/landing.py`
-- Función: `generate_landing(business: dict) -> str` (devuelve HTML completo)
-- Llama a `anthropic.Anthropic().messages.create()` con `model="claude-sonnet-4-5"`
-- El prompt debe incluir: nombre, categoría, dirección, rating, descripción si existe, colores sugeridos por categoría
-- El HTML generado debe ser standalone (todo inline, sin dependencias externas), responsivo, y verse profesional
-- Guardar el HTML en `outputs/landings/{slug_nombre}.html`
-- Devolver la ruta del archivo guardado además del HTML
+- `generate_landing(business)` → HTML mock placeholder local (sin APIs externas).
+  Útil como landing inicial mientras se prepara la versión final.
+- `_build_prompt_v2(business, gemini_imgs, giro_real_override)` → prompt v2
+  (director de arte) con paleta, arquetipo, secciones por giro.
+- `export_landing_package(business)` → tupla `(zip_bytes, meta)` con
+  `prompt.txt` + `img/<slot>.png` (imágenes Gemini) listas para subir a claude.ai.
+- `export_landing_packages_parallel(businesses, max_workers, progress_cb)` →
+  zip-de-zips para un lote de prospectos, paralelo a nivel de paquete.
+
+### `core/images.py`
+- `generate_business_images(business)` → genera 8 imágenes con Gemini
+  2.5 Flash Image. Cache por `place_id`. Cuota thread-safe (`reserve`/`release`
+  atómicos sobre `outputs/.gemini_usage.json`).
 
 ### `core/contact.py`
 - Función: `suggest_contact_channel(business: dict) -> dict`
@@ -241,10 +248,12 @@ Se abre automáticamente en `http://localhost:8501`
 - Plan gratuito: 25 búsquedas/mes
 - SDK: llamada HTTP directa a `https://api.hunter.io/v2/domain-search`
 
-### Anthropic Claude API
-- Modelo: `claude-sonnet-4-5`
-- SDK: `pip install anthropic`
-- El prompt de generación de landing debe ser en español e incluir instrucciones de diseño
+### Gemini 2.5 Flash Image (Nano Banana)
+- Modelo: `gemini-2.5-flash-image`
+- SDK: `pip install google-genai`
+- Quota: 100 imgs/día gratis con API key de https://aistudio.google.com/apikey
+- Genera imágenes a medida del giro del negocio (no Unsplash). Cache local
+  por `place_id` y contador de cuota thread-safe en `outputs/.gemini_usage.json`.
 
 ---
 
