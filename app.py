@@ -856,11 +856,73 @@ with tab_clients:
 
                 with tab_prompt:
                     st.caption(
-                        "Prompt **generado en vivo** desde los datos actuales del cliente "
-                        "(nombre, categoría, dirección, rating, reseñas). Cópialo, pégalo "
-                        "en claude.ai (Pro/Max), copia el HTML que te devuelva, y súbelo "
-                        "en la pestaña **📥 Cargar HTML**."
+                        "Dos formas de generar la landing en claude.ai:\n\n"
+                        "**🅰️ Rápida (sin imágenes a medida):** copia el prompt de abajo, "
+                        "pégalo en claude.ai, copia el HTML que te devuelva, súbelo "
+                        "en la pestaña **📥 Cargar HTML**. Las imágenes serán de Unsplash.\n\n"
+                        "**🅱️ Premium (con imágenes generadas):** descarga el paquete `.zip` "
+                        "(prompt + imágenes hechas a medida con Gemini Nano Banana). "
+                        "Descomprímelo, sube todos los archivos a claude.ai en un chat, "
+                        "y el HTML que te dé usará esas fotos reales del giro."
                     )
+
+                    # ===== 🅱️ Paquete con imágenes Gemini =====
+                    st.markdown("##### 🅱️ Paquete premium (prompt + imágenes Gemini)")
+                    pkg_state_key = f"landing_pkg_{sel_id}"
+                    if config.GEMINI_API_KEY:
+                        col_pkg1, col_pkg2 = st.columns([3, 2])
+                        with col_pkg1:
+                            if st.button(
+                                "📦 Generar paquete (~1-2 min, usa cuota Gemini)",
+                                key=f"genpkg_{sel_id}",
+                                type="primary",
+                                use_container_width=True,
+                            ):
+                                with st.spinner("Generando imágenes con Gemini y empaquetando..."):
+                                    try:
+                                        from core.landing import export_landing_package
+                                        zip_bytes, meta = export_landing_package(cli)
+                                        st.session_state[pkg_state_key] = {
+                                            "bytes": zip_bytes,
+                                            "meta": meta,
+                                        }
+                                        if meta["images_generated"]:
+                                            st.success(
+                                                f"✅ {meta['images_generated']} imágenes generadas. "
+                                                f"Quedan **{meta['remaining_today']}** hoy."
+                                            )
+                                        else:
+                                            st.warning(
+                                                "⚠️ Gemini no generó imágenes (cuota agotada o error). "
+                                                "El zip incluye el prompt con instrucciones de Unsplash."
+                                            )
+                                    except Exception as e:
+                                        logger.exception("Falló export_landing_package")
+                                        st.error(f"Error: {e}")
+                        with col_pkg2:
+                            pkg = st.session_state.get(pkg_state_key)
+                            if pkg:
+                                st.download_button(
+                                    "⬇️ Descargar zip",
+                                    data=pkg["bytes"],
+                                    file_name=f"{pkg['meta']['slug']}_landing_package.zip",
+                                    mime="application/zip",
+                                    key=f"dlpkg_{sel_id}",
+                                    use_container_width=True,
+                                )
+                            else:
+                                st.caption("ℹ️ Genera primero el paquete.")
+                    else:
+                        st.info(
+                            "🔑 Configura `GEMINI_API_KEY` en `.env` (o en Secrets de Streamlit Cloud) "
+                            "para habilitar las imágenes a medida. "
+                            "Saca tu key gratis en https://aistudio.google.com/apikey"
+                        )
+
+                    st.markdown("---")
+
+                    # ===== 🅰️ Prompt rápido (texto plano) =====
+                    st.markdown("##### 🅰️ Prompt rápido (Unsplash)")
                     prompt_text = build_landing_prompt(cli)
                     # Sin `key=` a propósito — si la ponemos, Streamlit cachea el valor
                     # inicial y no se refresca cuando el cliente cambia (nombre, datos…).

@@ -491,19 +491,28 @@ def _build_image_block(
     return disponibles, instrucciones
 
 
-def _build_prompt_v2(business: dict, gemini_imgs: dict[str, str] | None = None) -> str:
+def _build_prompt_v2(
+    business: dict,
+    gemini_imgs: dict[str, str] | None = None,
+    giro_real_override: str | None = None,
+) -> str:
     """Sustituye los placeholders {{...}} del template con datos del negocio.
 
     Args:
         business: datos del negocio.
         gemini_imgs: dict {slot: ruta_relativa} si Gemini generó imágenes
-            para este negocio. None → solo Unsplash.
+            para este negocio. None → instrucciones Unsplash.
+        giro_real_override: descripción específica del giro detectada con
+            heurística de palabras del nombre (sustituye al fallback genérico).
     """
     category = business.get("category", "Otros")
     palette = _palette_for(category)
 
     name = business.get("name", "")
-    giro_real = f"{category} — interpreta el carácter (barrio, premium, tradicional, moderno) a partir del nombre '{name}' y la zona"
+    if giro_real_override:
+        giro_real = giro_real_override
+    else:
+        giro_real = f"{category} — interpreta el carácter (barrio, premium, tradicional, moderno) a partir del nombre '{name}' y la zona"
 
     web_actual = business.get("website") or "no tiene sitio web propio"
     phone = business.get("phone") or "no disponible"
@@ -602,3 +611,125 @@ def generate_landing(business: dict) -> tuple[str, str]:
     path = config.LANDINGS_DIR / f"{slug}.html"
     path.write_text(html, encoding="utf-8")
     return html, str(path)
+
+
+# ============================================================
+# Export package para flujo claude.ai (NUEVO — flujo correcto)
+# ============================================================
+def export_landing_package(business: dict) -> tuple[bytes, dict]:
+    """Empaqueta `prompt.txt` + imágenes Gemini en un .zip listo para subir a claude.ai.
+
+    Flujo:
+      1. Genera (o reusa cache) las imágenes a medida con Gemini.
+      2. Construye el prompt v2 con rutas RELATIVAS al HTML que va a generar
+         claude.ai (ej. `img/hero.png`, no la ruta absoluta del filesystem).
+      3. Empaqueta todo en un zip en memoria con la estructura:
+            prompt.txt
+            README.md
+            img/hero.png
+            img/service-1.png
+            ...
+
+    Returns:
+        (zip_bytes, metadata) — metadata = {
+            "images_generated": int,
+            "remaining_today": int | None,
+            "had_gemini_key": bool,
+        }
+    """
+    import io
+    import zipfile
+
+    # Importar perezosamente para evitar import cycle con landing_prompt
+    try:
+        from core.landing_prompt import _detect_business_context  # type: ignore
+    except Exception:
+        _detect_business_context = None  # noqa: N806
+
+    # 1) Detectar giro real específico (heurística por palabras del nombre)
+    giro_real_override = None
+    if _detect_business_context is not None:
+        try:
+            ctx = _detect_business_context(business.get("name", ""), business.get("category", "Otros"))
+            if ctx and ctx.get("description"):
+                giro_real_override = ctx["description"]
+        except Exception:
+            giro_real_override = None
+
+    # 2) Generar imágenes Gemini (cache por place_id si ya existen en disco)
+    from core import images as _img
+
+    gemini_imgs: dict[str, str] | None = None
+    had_key = bool(config.GEMINI_API_KEY)
+    try:
+        gemini_imgs = _img.generate_business_images(business)
+    except Exception as e:
+        logger.exception("export_landing_package: falló Gemini: %s", e)
+        gemini_imgs = None
+
+    # 3) Re-mapear paths para el prompt: dentro del zip las imágenes van a vivir
+    #    en `img/<slot>.png`, así que el HTML que genere claude.ai debe usar
+    #    exactamente esas rutas (no las del cache `img/<place_id>/...`).
+    prompt_imgs: dict[str, str] | None = None
+    if gemini_imgs:
+        prompt_imgs = {slot: f"img/{slot}.png" for slot in gemini_imgs.keys()}
+
+    prompt_text = _build_prompt_v2(
+        business,
+        gemini_imgs=prompt_imgs,
+        giro_real_override=giro_real_override,
+    )
+
+    # 4) Construir el zip en memoria
+    name = business.get("name", "negocio")
+    slug = _slugify(name)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(f"{slug}/prompt.txt", prompt_text)
+
+        # README explicando cómo usar el paquete
+        readme = (
+            f"# Paquete de landing — {name}\n\n"
+            "## Cómo usarlo en claude.ai\n\n"
+            "1. Abre **claude.ai** (con tu plan Pro/Max).\n"
+            "2. Inicia un chat nuevo y **adjunta** todos los archivos de este zip "
+            "(`prompt.txt` + las imágenes de la carpeta `img/`).\n"
+            "3. En el mensaje, pega: \"Sigue las instrucciones del prompt.txt y "
+            "genera el HTML completo de la landing usando las imágenes adjuntas. "
+            "Devuelve solo el HTML.\"\n"
+            "4. Cuando Claude te dé el HTML, **guárdalo como `index.html` "
+            "junto a la carpeta `img/`** que viene en este zip — así las rutas "
+            "relativas funcionan al abrirlo en el navegador.\n"
+            "5. Sube el `index.html` a la pestaña 📥 Cargar HTML del prospecto en "
+            "la app, o publícalo directo (Netlify, etc.).\n\n"
+            "## Estructura\n\n"
+            "```\n"
+            f"{slug}/\n"
+            "├── prompt.txt          ← instrucciones para claude.ai\n"
+            "├── README.md           ← este archivo\n"
+            "└── img/                ← imágenes generadas con Gemini Nano Banana\n"
+        )
+        if gemini_imgs:
+            for slot in gemini_imgs.keys():
+                readme += f"    ├── {slot}.png\n"
+        else:
+            readme += (
+                "    (vacío — Gemini no estaba disponible. El prompt usará Unsplash.)\n"
+            )
+        readme += "```\n"
+        zf.writestr(f"{slug}/README.md", readme)
+
+        # Imágenes
+        if gemini_imgs:
+            for slot, rel_cache_path in gemini_imgs.items():
+                full = config.LANDINGS_DIR / rel_cache_path
+                if full.exists() and full.stat().st_size > 0:
+                    zf.write(full, arcname=f"{slug}/img/{slot}.png")
+
+    metadata = {
+        "images_generated": len(gemini_imgs) if gemini_imgs else 0,
+        "remaining_today": _img.remaining_today() if had_key else None,
+        "had_gemini_key": had_key,
+        "slug": slug,
+    }
+    return buf.getvalue(), metadata

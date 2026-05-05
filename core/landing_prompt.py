@@ -307,10 +307,26 @@ def _detect_business_context(name: str, category: str) -> dict:
 # Constructor del prompt
 # ============================================================
 def build_landing_prompt(business: dict) -> str:
-    """Genera un prompt completo, profesional y adaptado a la categoría.
+    """Genera el prompt v2 (director de arte) listo para pegar en claude.ai.
 
-    Pensado para pegarse en claude.ai (Pro/Max) o enviarse a Anthropic API.
+    Delega en `core.landing._build_prompt_v2` y enriquece el campo
+    "giro real detectado" con la heurística local de palabras clave del nombre.
+
+    Modo SIN imágenes Gemini (instrucciones Unsplash). Si quieres el flujo con
+    imágenes generadas + zip, usa `core.landing.export_landing_package`.
     """
+    from core.landing import _build_prompt_v2
+
+    name = business.get("name", "")
+    category = business.get("category", "Otros")
+    ctx = _detect_business_context(name, category)
+    giro_real = ctx.get("description") if ctx else None
+    return _build_prompt_v2(business, gemini_imgs=None, giro_real_override=giro_real)
+
+
+def _legacy_build_landing_prompt(business: dict) -> str:
+    """Versión legacy (Unsplash + secciones fijas por categoría). Conservada
+    como referencia; ya no se usa en el flujo."""
     name = business.get("name", "")
     category = business.get("category", "Otros")
     address = business.get("address", "")
