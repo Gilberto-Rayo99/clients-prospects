@@ -13,19 +13,41 @@ logger = logging.getLogger(__name__)
 # ============================================================
 # Paleta de colores sugerida por categoría
 # ============================================================
+# Cada paleta incluye: primary, accent, bg, text_dark, text_soft, border
 CATEGORY_PALETTES: dict[str, dict] = {
-    "Restaurantes":          {"primary": "#C0392B", "accent": "#F39C12", "bg": "#FFF8F0"},
-    "Cafeterías":            {"primary": "#6F4E37", "accent": "#D2A679", "bg": "#FAF6F1"},
-    "Estéticas y barberías": {"primary": "#1C1C1C", "accent": "#C9A227", "bg": "#F8F6F2"},
-    "Talleres mecánicos":    {"primary": "#2C3E50", "accent": "#E67E22", "bg": "#F4F6F8"},
-    "Tiendas de abarrotes":  {"primary": "#27AE60", "accent": "#F1C40F", "bg": "#F6FBF6"},
-    "Consultorios dentales": {"primary": "#1F6FEB", "accent": "#56C2E6", "bg": "#F4F9FE"},
-    "Gimnasios":             {"primary": "#111111", "accent": "#FF3B30", "bg": "#F4F4F4"},
-    "Veterinarias":          {"primary": "#16A085", "accent": "#F39C12", "bg": "#F2FBF8"},
-    "Lavanderías":           {"primary": "#3498DB", "accent": "#2ECC71", "bg": "#F4F9FD"},
-    "Florerías":             {"primary": "#C0397A", "accent": "#9B59B6", "bg": "#FBF4F9"},
-    "Panaderías":            {"primary": "#A0522D", "accent": "#F4A460", "bg": "#FFF8EE"},
-    "Otros":                 {"primary": "#1F6FEB", "accent": "#22C55E", "bg": "#F5F7FB"},
+    "Restaurantes":          {"primary": "#C0392B", "accent": "#F39C12", "bg": "#FFF8F0", "text_dark": "#1A1A1A", "text_soft": "#5A5048", "border": "#EADFD3"},
+    "Cafeterías":            {"primary": "#6F4E37", "accent": "#D2A679", "bg": "#FAF6F1", "text_dark": "#1F1A14", "text_soft": "#6B5E50", "border": "#E5DCCD"},
+    "Estéticas y barberías": {"primary": "#1C1C1C", "accent": "#C9A227", "bg": "#F8F6F2", "text_dark": "#0E0E0E", "text_soft": "#5A5A5A", "border": "#E0DCD3"},
+    "Talleres mecánicos":    {"primary": "#2C3E50", "accent": "#E67E22", "bg": "#F4F6F8", "text_dark": "#13202E", "text_soft": "#56636F", "border": "#D8DEE5"},
+    "Tiendas de abarrotes":  {"primary": "#27AE60", "accent": "#F1C40F", "bg": "#F6FBF6", "text_dark": "#173B26", "text_soft": "#5A6E5F", "border": "#D8E8DB"},
+    "Consultorios dentales": {"primary": "#1F6FEB", "accent": "#56C2E6", "bg": "#F4F9FE", "text_dark": "#0E1F3A", "text_soft": "#5A6A82", "border": "#D6E2F2"},
+    "Gimnasios":             {"primary": "#111111", "accent": "#FF3B30", "bg": "#F4F4F4", "text_dark": "#0A0A0A", "text_soft": "#4F4F4F", "border": "#D7D7D7"},
+    "Veterinarias":          {"primary": "#16A085", "accent": "#F39C12", "bg": "#F2FBF8", "text_dark": "#0E2A24", "text_soft": "#5A6E68", "border": "#D2E8E0"},
+    "Lavanderías":           {"primary": "#3498DB", "accent": "#2ECC71", "bg": "#F4F9FD", "text_dark": "#0E2638", "text_soft": "#5A6B7A", "border": "#D6E3EE"},
+    "Florerías":             {"primary": "#C0397A", "accent": "#9B59B6", "bg": "#FBF4F9", "text_dark": "#2A0E20", "text_soft": "#6E5A66", "border": "#EAD6E0"},
+    "Panaderías":            {"primary": "#A0522D", "accent": "#F4A460", "bg": "#FFF8EE", "text_dark": "#2A1810", "text_soft": "#6E5A4F", "border": "#E8D9C2"},
+    "Inmobiliarias":         {"primary": "#0E2A47", "accent": "#C19B5C", "bg": "#F7F5F0", "text_dark": "#0E1A2A", "text_soft": "#5A6573", "border": "#DDD6C8"},
+    "Otros":                 {"primary": "#1F6FEB", "accent": "#22C55E", "bg": "#F5F7FB", "text_dark": "#111827", "text_soft": "#4B5563", "border": "#D8DEE9"},
+}
+
+
+# ============================================================
+# Keywords Unsplash por categoría — sirven al modelo para variar imágenes
+# ============================================================
+CATEGORY_UNSPLASH_KEYWORDS: dict[str, list[str]] = {
+    "Restaurantes":          ["restaurant", "mexican-food", "tacos", "plates", "chef", "kitchen", "dining-table", "fresh-ingredients"],
+    "Cafeterías":            ["coffee", "cafe-interior", "latte-art", "espresso", "barista", "coffee-beans", "pastry", "cozy-cafe"],
+    "Estéticas y barberías": ["barbershop", "haircut", "barber", "scissors", "beauty-salon", "hairstylist", "men-grooming", "shaving"],
+    "Talleres mecánicos":    ["car-repair", "mechanic", "auto-shop", "engine", "wrench", "tire-change", "oil-change", "garage"],
+    "Tiendas de abarrotes":  ["grocery-store", "shelves", "convenience-store", "fresh-produce", "neighborhood-shop", "vegetables", "cashier"],
+    "Consultorios dentales": ["dentist", "dental-clinic", "teeth", "smile", "dentist-tools", "dental-chair", "modern-clinic", "orthodontist"],
+    "Gimnasios":             ["gym", "fitness", "workout", "dumbbells", "training", "crossfit", "athlete", "weight-room"],
+    "Veterinarias":          ["veterinarian", "pet-clinic", "dog-checkup", "cat-vet", "puppy", "kitten", "vet-doctor", "pet-care"],
+    "Lavanderías":           ["laundry", "washing-machine", "clean-clothes", "folded-linen", "laundromat", "soap", "ironed-shirts"],
+    "Florerías":             ["flowers", "bouquet", "florist", "roses", "flower-arrangement", "wedding-flowers", "flower-shop"],
+    "Panaderías":            ["bakery", "fresh-bread", "pastries", "croissant", "baker", "bakery-shelf", "oven", "cinnamon-roll"],
+    "Inmobiliarias":         ["real-estate", "modern-house", "apartment-interior", "living-room", "luxury-home", "city-skyline", "house-keys"],
+    "Otros":                 ["local-business", "storefront", "small-shop", "neighborhood", "service", "team-working"],
 }
 
 
@@ -244,44 +266,245 @@ footer {{
 # ============================================================
 # Llamada real a Claude
 # ============================================================
+_PROMPT_TEMPLATE_V2 = """Eres un DIRECTOR DE ARTE Y DESARROLLADOR FRONTEND senior. No eres un generador de plantillas. Tu trabajo es diseñar una landing page que se sienta hecha A LA MEDIDA de UN negocio específico — no una plantilla con el color cambiado.
+
+Antes de escribir HTML, vas a tomar decisiones de diseño explícitas. Después codeas. Si te saltas la fase de decisión, el resultado va a ser genérico y eso es un fallo.
+
+═══════════════════════════════════════════════
+DATOS DEL NEGOCIO
+═══════════════════════════════════════════════
+- **Nombre:** {{NOMBRE}}
+- **Categoría:** {{CATEGORIA}}
+- **Giro real detectado:** {{GIRO_REAL}}
+- **Dirección:** {{DIRECCION}}
+- **Teléfono:** {{TELEFONO}}
+- **Web actual:** {{WEB_ACTUAL}}
+- **Rating Google Maps:** {{RATING}} ({{RESEÑAS}} reseñas)
+- **Paleta sugerida (puedes ajustarla si el arquetipo lo pide):**
+  - Primario: {{COLOR_PRIMARIO}}
+  - Acento: {{COLOR_ACENTO}}
+  - Fondo claro: {{COLOR_FONDO}}
+  - Texto oscuro: {{COLOR_TEXTO_OSCURO}}
+  - Texto secundario: {{COLOR_TEXTO_SECUNDARIO}}
+  - Bordes: {{COLOR_BORDES}}
+- **Keywords Unsplash disponibles:** {{KEYWORDS_UNSPLASH}}
+
+═══════════════════════════════════════════════
+FASE 1 — DIRECCIÓN DE ARTE (OBLIGATORIA, ANTES DEL HTML)
+═══════════════════════════════════════════════
+
+Antes de escribir cualquier HTML, escribe en un comentario HTML al inicio del archivo (<!-- ... -->) las siguientes decisiones. NO te las saltes. Si las omites, el diseño será genérico.
+
+1. **ARQUETIPO VISUAL** (elige UNO y comprométete con él):
+   - `editorial-magazine` → tipografías serif grandes, layouts asimétricos tipo revista, mucho aire, fotos a sangre. Bueno para: spa, restaurantes finos, boutique, joyería, arquitectura.
+   - `bold-energetic` → tipografías condensadas/pesadas, alto contraste, diagonales, colores saturados, animaciones agresivas. Bueno para: gym, crossfit, autos, bares deportivos, escuelas de baile.
+   - `warm-artisan` → texturas, serif humanista, paleta tierra, fotos cálidas, hand-drawn touches, layouts orgánicos. Bueno para: panadería, café de especialidad, taquería tradicional, carpintería, productos artesanales.
+   - `clinical-trust` → mucho whitespace, sans-serif neutra, azules/verdes suaves, iconografía limpia, cards con sombras suaves. Bueno para: clínicas, dentistas, despachos legales, contadores, laboratorios.
+   - `playful-vibrant` → colores múltiples, formas geométricas, ilustraciones, tipografías redondas, microanimaciones divertidas. Bueno para: heladerías, juguetes, fiestas infantiles, pastelerías, escuelas para niños.
+   - `street-urban` → tipografías display agresivas, fondos oscuros, neones, fotos con grano, layouts brutalistas. Bueno para: barbería moderna, tatuajes, streetwear, gaming, tuning.
+   - `nature-calm` → verdes/beige, serif elegante, mucho espacio en blanco, fotos naturales, transiciones lentas. Bueno para: veterinaria holística, yoga, herbolaria, jardinería, retiros.
+   - `tech-minimal` → grids matemáticos, mono-fuentes opcionales, paleta restringida, microinteracciones precisas. Bueno para: estudio de diseño, agencia, coworking, software.
+
+   IMPORTANTE: el arquetipo debe surgir del NEGOCIO REAL, no de la categoría. Una veterinaria de barrio NO es igual que una clínica veterinaria 24h premium NI que una estética canina con vibe playful. Lee el nombre, dirección (zona) y reseñas para inferir el carácter del negocio.
+
+2. **LAYOUT DOMINANTE** (elige UNO):
+   - Hero clásico centrado (úsalo SOLO si justificas por qué no hay mejor opción — es el default aburrido).
+   - Hero split (texto izquierda, foto/imagen derecha de borde a borde).
+   - Hero asimétrico estilo magazine (título enorme tapando parcialmente la imagen).
+   - Hero full-bleed con overlay (foto pantalla completa, texto encima con gradient).
+   - Hero apilado vertical (foto arriba a sangre, contenido abajo, estilo editorial).
+   - Hero con grid de varias imágenes (mosaico tipo galería desde el inicio).
+
+3. **TIPOGRAFÍA** (combo headline + body):
+   - Usa Google Fonts via @import en el <style> (UNA sola petición, máximo 2 familias). Justifica la elección.
+   - Ejemplos de combos según arquetipo:
+     - editorial-magazine → `Playfair Display` + `Inter`
+     - bold-energetic → `Archivo Black` o `Bebas Neue` + `Inter`
+     - warm-artisan → `Fraunces` o `DM Serif Display` + `Nunito`
+     - clinical-trust → `Manrope` o `Inter` (solo sans, distintos pesos)
+     - playful-vibrant → `Fredoka` o `Quicksand` + `Nunito`
+     - street-urban → `Anton` o `Oswald` + `Space Grotesk`
+     - nature-calm → `Cormorant Garamond` + `Inter`
+     - tech-minimal → `Space Grotesk` + `JetBrains Mono` (acentos)
+   - NO uses solo `-apple-system` system fonts. Eso garantiza que todo se vea igual.
+
+4. **PALETA FINAL**:
+   - Toma la paleta sugerida como punto de partida, pero AJÚSTALA si el arquetipo lo pide. Ej: si te dieron `#16A085` (verde) pero el arquetipo es `street-urban`, oscurece el fondo a casi negro y usa el verde como acento neón. Justifícalo.
+   - Define en :root al menos: --primario, --acento, --fondo, --fondo-alt, --texto, --texto-suave, --borde.
+   - Considera agregar una tercera variable de "color destacado" inesperado para romper la monotonía (ej. un coral en una paleta verde).
+
+5. **DIFERENCIADOR VISUAL** (obligatorio, mínimo UNO):
+   Algo que esta landing tenga y otras no. Ejemplos:
+   - Tickets de menú estilo recibo de papel para una taquería.
+   - Polaroid scattered con rotaciones leves para una galería de mascotas.
+   - Cronómetros / barras de progreso para un gym.
+   - Tarjeta de cita médica con tipografía monospace para una clínica.
+   - Sello de "atendemos desde [año]" con textura.
+   - Sección "el día en la clínica/taller/gym" con timeline horizontal.
+   - Mapa de servicios estilo infografía dibujada.
+   - Galería con efecto masonry irregular.
+   - Cita destacada gigante tipo editorial entre secciones.
+
+6. **SECCIONES — ESTRUCTURA REQUERIDA + LIBERTAD CREATIVA**:
+
+   Secciones núcleo (deben existir, pero TÚ decides el orden, el formato visual y cómo se llaman):
+   - Apertura / Hero
+   - Lo que hacemos / ofrecemos (servicios, menú, productos — el formato depende del giro)
+   - Prueba social (testimonios, reseñas, rating, casos)
+   - Equipo o "quiénes somos" (si aplica al giro)
+   - Galería visual del lugar/producto
+   - Llamada a la acción principal (formulario, reserva, contacto, WhatsApp)
+   - Ubicación + horarios + contacto
+
+   Secciones EXTRAS obligatorias (mínimo UNA, idealmente DOS, propias del giro):
+   Tú las inventas según el negocio. Ejemplos por giro:
+   - Taquería: "nuestras salsas", "cómo se hace nuestra tortilla", "los favoritos de la casa"
+   - Veterinaria: "qué hacer en una emergencia", "calendario de vacunación", "tips de cuidado mensual"
+   - Gym: "horario de clases", "transformaciones reales", "tu primera semana", "el equipo de coaches"
+   - Barbería: "cortes de la casa", "el ritual completo", "productos que usamos"
+   - Cafetería: "nuestro origen del café", "el método de preparación", "panadería del día"
+   - Spa: "rituales", "qué esperar en tu primera visita"
+   - Dentista: "antes y después", "tecnología que usamos", "tu primera consulta paso a paso"
+
+   El ORDEN de las secciones debe servir a la narrativa del negocio, no ser fijo. Una taquería quizá lleva el menú casi al inicio. Una clínica lleva confianza/equipo antes que servicios. Un gym lleva transformaciones antes que precios.
+
+7. **PROHIBICIONES (rompe el molde genérico)**:
+   - ❌ No uses el patrón "hero centrado con h1 + subtítulo + 2 botones lado a lado". Si lo usas, justifica MUY bien por qué.
+   - ❌ No uses grids de exactamente 3 columnas con ícono + título + párrafo idénticas. Rompe el ritmo: tamaños distintos, una destacada, layout asimétrico, o un formato totalmente diferente (lista numerada grande, acordeón, tabs, scroll horizontal).
+   - ❌ No uses el típico "card con sombra suave, border-radius 12px, padding 2rem" para TODO. Varía: algunas cards sin borde, otras con borde grueso, otras con fondo de color, otras tipo ticket, etc.
+   - ❌ No pongas todos los CTAs como botones rectangulares con el color primario. Considera botones outline, links subrayados gruesos, botones con flecha, botones con forma irregular.
+   - ❌ No uses emojis como íconos principales si el arquetipo es editorial, clinical, nature-calm o tech-minimal. Usa SVG inline simples (líneas, formas geométricas) o ningún ícono.
+
+═══════════════════════════════════════════════
+FASE 2 — REQUISITOS TÉCNICOS (no negociables)
+═══════════════════════════════════════════════
+
+- HTML5 standalone, todo inline (CSS en <style>, JS solo si es vanilla y necesario).
+- Mobile-first con media queries en 768px y 480px.
+- Google Fonts permitido vía @import (única dependencia externa además de imágenes).
+- Sin Font Awesome, sin Bootstrap, sin Tailwind CDN, sin librerías JS.
+- Accesibilidad: alt descriptivos, labels en inputs, contraste correcto, focus states visibles.
+- Microinteracciones: transiciones suaves, hovers con sentido (no solo translateY -2px en todo).
+- Formularios visualmente funcionales aunque no tengan backend.
+- Responsive real: en móvil el diseño debe REORGANIZARSE, no solo encogerse.
+
+═══════════════════════════════════════════════
+FASE 3 — IMÁGENES (regla estricta)
+═══════════════════════════════════════════════
+
+Usa Unsplash Source con UN keyword distinto por imagen:
+```
+https://source.unsplash.com/featured/<ancho>x<alto>/?<keyword>
+```
+
+- Tamaños: hero 1600x900, cards 800x600, galería 600x400, miniaturas 400x300.
+- Sin parámetros extra (`?sig=`, `?lock=`, `&` están prohibidos).
+- Cada `<img>` debe tener un keyword DIFERENTE de los disponibles + variantes relacionadas si se acaban.
+- alt descriptivo y específico ("Mastín atendido en consulta de rutina", no "perro").
+- Prohibido: picsum, via.placeholder, Flickr, repetir URLs, SVG geométricos como reemplazo de fotos reales.
+
+═══════════════════════════════════════════════
+FASE 4 — TONO Y CONTENIDO
+═══════════════════════════════════════════════
+
+- Español de México, cálido pero profesional.
+- NADA de "calidad y servicio", "los mejores", "tu mejor opción". Frases muertas.
+- Inventa contenido ESPECÍFICO del giro real:
+  - Taquería → nombres de tacos con descripción ("Pastor con piña fresca al trompo, en tortilla recién hecha")
+  - Veterinaria → servicios con detalle clínico real ("Vacunación múltiple felina con desparasitante")
+  - Barbería → cortes con personalidad ("Fade bajo con diseño lateral")
+  - Gym → clases con horario y nivel ("Funcional avanzado, 6:00 AM, lunes y miércoles")
+- Testimonios: nombres mexicanos creíbles + comentarios que mencionen un servicio/producto específico del negocio + zona o colonia cuando aplique.
+- Footer SIEMPRE incluye: "Sitio de demostración generado por **{{AGENCIA}}**".
+
+═══════════════════════════════════════════════
+FORMATO DE SALIDA
+═══════════════════════════════════════════════
+
+Tu respuesta debe ser EXCLUSIVAMENTE:
+
+1. Un comentario HTML al inicio del archivo con tus decisiones de Fase 1 (arquetipo, layout, tipografía, paleta final, diferenciador, secciones extras elegidas, justificación breve de cada una). Algo así:
+
+```
+<!--
+DIRECCIÓN DE ARTE
+- Arquetipo: warm-artisan (negocio de barrio, vibe familiar, no clínica corporativa)
+- Layout dominante: hero apilado con foto a sangre arriba
+- Tipografía: Fraunces (headlines) + Nunito (body)
+- Paleta ajustada: bajé saturación del verde a tono salvia, añadí coral #E07856 como acento inesperado
+- Diferenciador: tarjeta de "primera consulta gratis" estilo ticket de papel + galería polaroid scattered
+- Secciones extras: "qué hacer en una emergencia" (banda roja sticky en mobile) + "calendario de vacunación" (tabla visual)
+- Orden: Hero → Equipo (confianza primero) → Servicios → Emergencia → Galería → Vacunación → Testimonios → Cita → Mapa
+-->
+```
+
+2. Inmediatamente después, el HTML completo desde `<!DOCTYPE html>` hasta `</html>`.
+
+Sin texto previo. Sin texto posterior. Sin bloques de código markdown. Solo el comentario de dirección de arte + el HTML, listo para guardar como .html.
+"""
+
+
+def _build_prompt_v2(business: dict) -> str:
+    """Sustituye los placeholders {{...}} del template con datos del negocio."""
+    category = business.get("category", "Otros")
+    palette = _palette_for(category)
+    keywords = CATEGORY_UNSPLASH_KEYWORDS.get(category, CATEGORY_UNSPLASH_KEYWORDS["Otros"])
+
+    # giro real: por ahora derivado de categoría + nombre, deja que el modelo afine
+    name = business.get("name", "")
+    giro_real = f"{category} — interpreta el carácter (barrio, premium, tradicional, moderno) a partir del nombre '{name}' y la zona"
+
+    web_actual = business.get("website") or "no tiene sitio web propio"
+    phone = business.get("phone") or "no disponible"
+    rating = business.get("rating") if business.get("rating") is not None else "—"
+    reviews = business.get("reviews_count") or 0
+
+    replacements = {
+        "{{NOMBRE}}":                  name,
+        "{{CATEGORIA}}":               category,
+        "{{GIRO_REAL}}":               giro_real,
+        "{{DIRECCION}}":               business.get("address", ""),
+        "{{TELEFONO}}":                phone,
+        "{{WEB_ACTUAL}}":              web_actual,
+        "{{RATING}}":                  str(rating),
+        "{{RESEÑAS}}":                 str(reviews),
+        "{{COLOR_PRIMARIO}}":          palette["primary"],
+        "{{COLOR_ACENTO}}":            palette["accent"],
+        "{{COLOR_FONDO}}":             palette["bg"],
+        "{{COLOR_TEXTO_OSCURO}}":      palette["text_dark"],
+        "{{COLOR_TEXTO_SECUNDARIO}}":  palette["text_soft"],
+        "{{COLOR_BORDES}}":            palette["border"],
+        "{{KEYWORDS_UNSPLASH}}":       ", ".join(keywords),
+        "{{AGENCIA}}":                 config.AGENCY_NAME,
+    }
+
+    out = _PROMPT_TEMPLATE_V2
+    for k, v in replacements.items():
+        out = out.replace(k, v)
+    return out
+
+
 def _claude_landing_html(business: dict) -> str:
-    """Genera la landing usando claude-sonnet-4-5."""
+    """Genera la landing usando claude-sonnet-4-5 con el prompt v2 (director de arte)."""
     import anthropic
 
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
-    palette = _palette_for(business.get("category", "Otros"))
-
-    prompt = f"""Eres un diseñador web senior. Genera una landing page completa en HTML standalone (todo inline: CSS dentro de <style>, sin dependencias externas) para el siguiente negocio mexicano:
-
-- Nombre: {business.get('name')}
-- Categoría: {business.get('category')}
-- Dirección: {business.get('address')}
-- Teléfono: {business.get('phone') or 'no disponible'}
-- Rating Google Maps: {business.get('rating')} ({business.get('reviews_count')} reseñas)
-
-Requisitos de diseño:
-- Paleta principal: {palette['primary']}, acento: {palette['accent']}, fondo: {palette['bg']}
-- Hero llamativo con nombre + tagline + CTA
-- Sección "Sobre nosotros" breve
-- 3 servicios o características de la categoría
-- Bloque de rating
-- Sección de contacto con dirección y teléfono
-- Footer con: "Sitio de demostración generado por {config.AGENCY_NAME}"
-- Responsive (media queries)
-- Tipografía sans-serif del sistema
-- Tono profesional pero cálido, en español de México
-
-Devuelve SOLO el HTML completo desde <!DOCTYPE html> hasta </html>. Sin explicaciones."""
+    prompt = _build_prompt_v2(business)
 
     msg = client.messages.create(
         model=config.CLAUDE_MODEL,
-        max_tokens=4096,
+        max_tokens=16000,
         messages=[{"role": "user", "content": prompt}],
     )
     text = "".join(b.text for b in msg.content if hasattr(b, "text"))
 
-    # Extraer solo el HTML si Claude metió backticks
-    m = re.search(r"<!DOCTYPE html>.*?</html>", text, re.DOTALL | re.IGNORECASE)
+    # Quitar fences markdown si Claude los metió por error
+    text = re.sub(r"^```(?:html)?\s*\n", "", text.strip())
+    text = re.sub(r"\n```\s*$", "", text)
+
+    # Capturar desde el primer comentario HTML (dirección de arte) si existe,
+    # si no, desde <!DOCTYPE html>. Hasta </html>.
+    m = re.search(r"(<!--.*?-->\s*)?<!DOCTYPE html>.*?</html>", text, re.DOTALL | re.IGNORECASE)
     return m.group(0) if m else text
 
 
