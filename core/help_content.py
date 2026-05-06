@@ -4,6 +4,13 @@ HELP_SECTIONS = [
     {
         "title": "🆕 Novedades de este release",
         "content": """
+**I. 🗑️ Limpieza de Netlify (sites huérfanos)**
+Cuando descartas/cierras un cliente, su site Netlify queda vivo (consume 1 de los 500 slots del free tier). Hay dos formas de limpiar:
+- **Banner persistente en Mis clientes**: si hay clientes en estados terminales (Descartado/Cerrado/Sin teléfono) con `netlify_site_id`, aparece un expander **"🗑️ N site(s) Netlify de clientes inactivos — liberar slots"**. Click → borra todos los sites en lote (con throttle 0.3s) y limpia los campos `netlify_*` del cliente. El cliente sigue en tu DB con su HTML; solo se libera el slot público.
+- **Botón individual**: en el header del cliente, junto a "🗑️ Eliminar cliente" aparece un checkbox **"🗑️ Borrar también de Netlify"** (default ON si tiene site) — el delete del cliente también tira el site.
+
+Ambos son **irreversibles**: la URL pública dejará de responder. El HTML está guardado en la DB, así que puedes re-publicar después si reactivas el cliente.
+
 **H. 📲 Envío rápido en Mis clientes (filtro 'Mensaje listo')**
 Cuando el filtro de estado en Mis clientes incluye **"Mensaje listo"**, aparece un expander auto-abierto **"📲 N cliente(s) en 'Mensaje listo' — envío rápido"** con el mismo layout que el panel post-bulk: por cada cliente una fila con nombre + URL Netlify + botón **📲 WhatsApp** (con plantilla y URL ya rellenadas) + ✅ para marcar como enviado en un click. Sin necesidad de seleccionar cliente uno por uno. Cap a 30 visibles para no saturar; usa categoría/score para reducir.
 

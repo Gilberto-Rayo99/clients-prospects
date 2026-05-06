@@ -180,6 +180,68 @@ def _publish_pending_netlify(client_ids: list[str], progress_cb=None) -> list[di
     return results
 
 
+def _cleanup_netlify_sites(client_ids: list[str], progress_cb=None) -> list[dict]:
+    """Borra los sites Netlify de los clientes dados y limpia campos netlify_*.
+
+    Útil para liberar slots de Netlify cuando un cliente ya no es prospecto
+    activo (Descartado/Cerrado/Sin teléfono) o cuando lo eliminas.
+
+    No borra el cliente de la DB — solo el site en Netlify y los campos
+    netlify_url, netlify_site_id, netlify_deploy_at del registro. Si quieres
+    eliminar el cliente entero usa clients_store.delete() después.
+
+    Args:
+        client_ids: lista de cids a procesar.
+        progress_cb: callable(done, total, name) opcional.
+
+    Returns:
+        Lista de dicts {name, ok, site_id|error}.
+    """
+    import time as _time_clean
+    from core import netlify as _net_clean
+
+    results: list[dict] = []
+    total = len(client_ids)
+    for i, cid in enumerate(client_ids, start=1):
+        cli = clients_store.get(cid, include_html=False)
+        if not cli:
+            results.append({"name": cid, "ok": False, "error": "Cliente no encontrado"})
+            continue
+        site_id = cli.get("netlify_site_id")
+        name = cli.get("name", cid)
+        if not site_id:
+            results.append({"name": name, "ok": True, "skipped": True, "reason": "sin site"})
+            continue
+        try:
+            deleted = _net_clean.delete_site(site_id)
+            if deleted:
+                # Limpiar fields del cliente
+                clients_store.update(
+                    cid,
+                    netlify_url=None,
+                    netlify_site_id=None,
+                    netlify_deploy_at=None,
+                )
+                results.append({"name": name, "ok": True, "site_id": site_id})
+            else:
+                results.append({
+                    "name": name, "ok": False, "site_id": site_id,
+                    "error": "Netlify devolvió error al borrar",
+                })
+        except Exception as e:
+            logger.exception("delete_site falló para %s", name)
+            results.append({"name": name, "ok": False, "error": str(e)[:200]})
+        if progress_cb:
+            try:
+                progress_cb(i, total, name)
+            except Exception:
+                pass
+        # Throttle suave
+        _time_clean.sleep(0.3)
+
+    return results
+
+
 def _render_quick_send_row(cli: dict, key_prefix: str) -> None:
     """Pinta una fila compacta de envío rápido para un cliente.
 
@@ -1021,6 +1083,70 @@ with tab_clients:
                         _refresh()
             st.markdown("")
 
+        # ---- 🗑️ Banner persistente: limpieza de sites Netlify huérfanos ----
+        # Detecta clientes en estados terminales (Descartado/Cerrado/Sin teléfono)
+        # que aún tienen netlify_url. Cada uno consume un slot del límite de
+        # 500 sites por cuenta free.
+        if config.NETLIFY_API_TOKEN:
+            _orphan_sites = [
+                c for c in all_clients
+                if c.get("estado") in config.INACTIVE_STATUSES
+                and c.get("netlify_site_id")
+            ]
+            if _orphan_sites:
+                with st.expander(
+                    f"🗑️ **{len(_orphan_sites)} site(s) Netlify de clientes inactivos** — "
+                    "liberar slots",
+                    expanded=False,
+                ):
+                    st.caption(
+                        "Estos clientes están en estado terminal (Descartado/Cerrado/Sin teléfono) "
+                        "pero su site Netlify sigue vivo, ocupando un slot del límite de 500/cuenta. "
+                        "Borrarlos libera espacio (irreversible: la URL pública dejará de responder)."
+                    )
+                    for c in _orphan_sites[:15]:
+                        st.caption(
+                            f"• **{c['name']}** · {c.get('estado', '')} · "
+                            f"[{c.get('netlify_url', '')}]({c.get('netlify_url', '')})"
+                        )
+                    if len(_orphan_sites) > 15:
+                        st.caption(f"… y {len(_orphan_sites) - 15} más.")
+
+                    if st.button(
+                        f"🗑️ Borrar los {len(_orphan_sites)} sites Netlify",
+                        type="secondary",
+                        use_container_width=True,
+                        key="banner_cleanup_netlify",
+                        help=(
+                            "Borra cada site en Netlify y limpia los campos "
+                            "netlify_url/site_id/deploy_at del cliente. "
+                            "El cliente sigue en tu DB con su HTML guardado — "
+                            "solo se libera el site público. Irreversible."
+                        ),
+                    ):
+                        progress_cl = st.progress(0.0, text="Borrando sites…")
+
+                        def _cl_cb(done: int, total: int, last_name: str):
+                            progress_cl.progress(
+                                done / total,
+                                text=f"{done}/{total} · último: {last_name}",
+                            )
+
+                        _ids_to_clean = [c["id"] for c in _orphan_sites]
+                        _cl_results = _cleanup_netlify_sites(_ids_to_clean, progress_cb=_cl_cb)
+                        progress_cl.empty()
+                        n_ok = sum(1 for r in _cl_results if r["ok"] and not r.get("skipped"))
+                        n_fail = sum(1 for r in _cl_results if not r["ok"])
+                        if n_ok:
+                            st.success(f"✅ {n_ok} sites borrados de Netlify · slots liberados")
+                        if n_fail:
+                            with st.expander(f"❌ {n_fail} fallaron — ver detalle"):
+                                for r in _cl_results:
+                                    if not r["ok"]:
+                                        st.caption(f"❌ **{r['name']}** — {r.get('error', '?')}")
+                        _refresh()
+            st.markdown("")
+
         # ---- Filtros ----
         from core.score import _is_real_website  # heurística compartida
 
@@ -1164,10 +1290,33 @@ with tab_clients:
                     st.markdown(f"## {cli['name']}")
                     st.caption(f"{cli.get('category', '')} · {cli.get('address', '')}")
                 with col_h2:
+                    # Checkbox condicional: solo si el cliente tiene site Netlify
+                    _has_netlify = bool(cli.get("netlify_site_id")) and bool(config.NETLIFY_API_TOKEN)
+                    _del_with_netlify = False
+                    if _has_netlify:
+                        _del_with_netlify = st.checkbox(
+                            "🗑️ Borrar también de Netlify",
+                            value=True,
+                            key=f"del_with_netlify_{sel_id}",
+                            help=(
+                                "Si está activo, el site Netlify del cliente se borra "
+                                "antes de eliminar el registro. Libera 1 slot. Irreversible."
+                            ),
+                        )
                     if st.button("🗑️ Eliminar cliente", key=f"del_{sel_id}", use_container_width=True):
+                        # Borrar site Netlify primero si así se pidió
+                        if _del_with_netlify and _has_netlify:
+                            try:
+                                from core import netlify as _nt_del
+                                _nt_del.delete_site(cli["netlify_site_id"])
+                            except Exception:
+                                logger.exception("Falló delete_site en eliminar cliente")
                         clients_store.delete(sel_id)
                         st.session_state["editing_client_id"] = None
-                        st.toast("Cliente eliminado")
+                        if _del_with_netlify and _has_netlify:
+                            st.toast("Cliente eliminado · site Netlify borrado")
+                        else:
+                            st.toast("Cliente eliminado")
                         _refresh()
 
                 # ===== Grid: datos + seguimiento =====
