@@ -4,6 +4,18 @@ HELP_SECTIONS = [
     {
         "title": "🆕 Novedades de este release",
         "content": """
+**0. ⚡ PageSpeed Insights — argumento de venta automático**
+- En **👥 Mis clientes → Datos del negocio**, si el cliente tiene web aparece un botón **"🔄 Analizar con PageSpeed"**.
+- Llama a la API gratis de Google (25k req/día) y trae el score real: móvil + desktop, LCP, FCP.
+- Si el score móvil es <50, la app **selecciona automáticamente la plantilla "⚡ Inicial — web lenta"** que mete la frase: *"Tu sitio actual saca 23/100 en velocidad móvil según Google…"*. Pitch brutal.
+- Resultado cacheado 30 días — un análisis dura todo el mes.
+- API key opcional en `PAGESPEED_API_KEY` (sube cuota). Sin key también funciona, con cuota reducida.
+
+**0b. 🔔 Cola de follow-ups automática**
+- Al entrar a **👥 Mis clientes** verás un banner arriba: *"3 clientes necesitan follow-up"*.
+- Lista clientes en estado `Mensaje enviado` ≥ 7 días, `Llamada/visita` ≥ 3 días, `Propuesta enviada` ≥ 5 días, etc.
+- Click en **Abrir** → salta al cliente con la plantilla de follow-up ya seleccionada. Ahorra 10-20 min/día y duplica la tasa de respuesta.
+
 **1. Imágenes a medida con Gemini Nano Banana (opcional, paid tier)**
 - Cada landing puede llevar **8 fotos generadas a medida** del giro real del negocio.
 - ⚠️ `gemini-2.5-flash-image` **NO está en free tier** (Google cambió las reglas). Costo: **~$0.039 USD/img × 8 = ~$0.31/paquete**.

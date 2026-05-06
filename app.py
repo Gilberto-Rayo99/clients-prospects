@@ -692,6 +692,41 @@ with tab_clients:
     if not all_clients:
         st.info("Aún no has guardado clientes. Ve a la pestaña **🔍 Buscar prospectos** y guarda los que te interesen.")
     else:
+        # ---- 🔔 Banner de follow-ups pendientes ----
+        from core import followups as _followups
+        _pending_fu = _followups.get_pending(all_clients)
+        if _pending_fu:
+            _counts = _followups.summary_counts(_pending_fu)
+            _icon = "🔥" if _counts["urgentes"] + _counts["rezagados"] > 0 else "🔔"
+            with st.expander(
+                f"{_icon} **{_counts['total']} cliente(s) necesitan follow-up** — "
+                f"📅 {_counts['agendados']} agendados · "
+                f"⏰ {_counts['urgentes']} urgentes · "
+                f"🐢 {_counts['rezagados']} rezagados",
+                expanded=(_counts["agendados"] > 0 or _counts["rezagados"] > 0),
+            ):
+                st.caption(
+                    "Click en *Abrir* para saltar al cliente y mandar el follow-up. "
+                    "La plantilla sugerida ya viene seleccionada según el motivo."
+                )
+                for fu in _pending_fu[:15]:
+                    _prio_icon = {1: "📅", 2: "⏰", 3: "🐢"}.get(fu["priority"], "•")
+                    _cols = st.columns([1, 4, 3, 1])
+                    _cols[0].write(_prio_icon)
+                    _cols[1].markdown(f"**{fu['name']}** _(estado: {fu.get('estado', 'Pendiente')})_")
+                    _cols[2].caption(fu["reason"])
+                    if _cols[3].button("Abrir", key=f"fu_open_{fu['id']}"):
+                        st.session_state["editing_client_id"] = fu["id"]
+                        # Si la plantilla existe, dejarla pre-seleccionada
+                        if fu.get("template"):
+                            st.session_state[f"tpl_{fu['id']}"] = config.WHATSAPP_TEMPLATE_LABELS.get(
+                                fu["template"], None
+                            )
+                        st.rerun()
+                if len(_pending_fu) > 15:
+                    st.caption(f"… y {len(_pending_fu) - 15} más. Filtra por estado abajo para verlos.")
+            st.markdown("---")
+
         # ---- Filtros ----
         f1, f2, f3 = st.columns([2, 2, 1])
         with f1:
@@ -771,6 +806,41 @@ with tab_clients:
                         links = " · ".join(f"[{k}]({v})" for k, v in cli["social_links"].items() if v)
                         if links:
                             st.markdown(f"**Redes:** {links}")
+
+                    # ===== ⚡ PageSpeed Insights =====
+                    if cli.get("website"):
+                        from core import pagespeed as _ps
+                        _ps_data = _ps.get_score(cli["website"])  # cacheado 30d
+                        st.markdown("**⚡ PageSpeed Google:**")
+                        if _ps_data:
+                            _m, _d = _ps_data.get("mobile_score"), _ps_data.get("desktop_score")
+                            _lcp = _ps_data.get("mobile_lcp")
+                            st.markdown(
+                                f"- 📱 Móvil: **{_m}/100** {_ps.severity_label(_m)}"
+                                + (f" · LCP {_lcp}s" if _lcp else "")
+                            )
+                            st.markdown(
+                                f"- 💻 Desktop: **{_d}/100** {_ps.severity_label(_d)}"
+                            )
+                            if _m is not None and _m < 80:
+                                st.caption(
+                                    "💡 Tip: usa la plantilla `⚡ Inicial — web lenta (PageSpeed)` "
+                                    "para mencionarlo en el WhatsApp."
+                                )
+                        else:
+                            st.caption("_(no analizado todavía)_")
+                        if st.button(
+                            "🔄 Analizar con PageSpeed (~30s)",
+                            key=f"ps_refresh_{sel_id}",
+                            help="Llama a PageSpeed Insights de Google. Cache 30 días.",
+                        ):
+                            with st.spinner("Consultando PageSpeed Insights..."):
+                                _new = _ps.get_score(cli["website"], force_refresh=True)
+                                if _new:
+                                    st.success(f"Listo · móvil {_new.get('mobile_score')}/100")
+                                else:
+                                    st.error("PageSpeed no devolvió datos. Intenta más tarde.")
+                                _refresh()
 
                 with col_right:
                     st.markdown("### 📌 Seguimiento")
@@ -859,7 +929,16 @@ with tab_clients:
                         if cli.get("estado") in ("Mensaje enviado",) and not cli.get("respondio"):
                             default_tpl = "follow_up_sin_respuesta"
                         elif cli.get("website"):
-                            default_tpl = "inicial_web_desactualizada"
+                            # Si tenemos PageSpeed crítico cacheado, prioriza esa plantilla
+                            try:
+                                from core import pagespeed as _ps_tpl
+                                _ps_tpl_data = _ps_tpl.get_score(cli["website"])
+                                if _ps_tpl_data and (_ps_tpl_data.get("mobile_score") or 100) < 50:
+                                    default_tpl = "inicial_pagespeed_critico"
+                                else:
+                                    default_tpl = "inicial_web_desactualizada"
+                            except Exception:
+                                default_tpl = "inicial_web_desactualizada"
                         else:
                             default_tpl = "inicial_sin_web"
 

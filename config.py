@@ -122,6 +122,7 @@ GOOGLE_PLACES_API_KEY = _secret("GOOGLE_PLACES_API_KEY")
 OUTSCRAPER_API_KEY = _secret("OUTSCRAPER_API_KEY")
 HUNTER_API_KEY = _secret("HUNTER_API_KEY")
 GEMINI_API_KEY = _secret("GEMINI_API_KEY")
+PAGESPEED_API_KEY = _secret("PAGESPEED_API_KEY")  # opcional, sube cuota a 25k/día
 NETLIFY_API_TOKEN = _secret("NETLIFY_API_TOKEN")
 APP_PASSWORD = _secret("APP_PASSWORD")
 
@@ -241,6 +242,16 @@ WHATSAPP_TEMPLATES = {
         "La inversion arranca en *$3,000 pesos* y sube segun los extras que "
         "necesiten. Sin compromiso, si les late platicamos."
     ),
+    "inicial_pagespeed_critico": (
+        "Hola, buenos dias! Soy {tu_nombre} de {agencia}.\n\n"
+        "Vi *{nombre}* en Maps con {rating} estrellas y {reviews} resenas. "
+        "Reviso su sitio web y note algo importante:\n\n"
+        "{pagespeed_pitch}\n\n"
+        "Les prepare una version GRATIS de como podria verse renovado y rapido:\n\n"
+        "{landing_url}\n\n"
+        "La inversion arranca en *$3,000 pesos*. Sin compromiso, si les late "
+        "platicamos como subir esos numeros y atraer mas clientes desde Google."
+    ),
     "follow_up_sin_respuesta": (
         "Hola! Les escribi hace unos dias sobre la propuesta de pagina web para *{nombre}*.\n\n"
         "Se que tienen mucho trabajo. Si tienen 5 minutos con gusto les explico como "
@@ -265,6 +276,7 @@ WHATSAPP_TEMPLATES = {
 WHATSAPP_TEMPLATE_LABELS = {
     "inicial_sin_web":              "🆕 Inicial — negocio sin web",
     "inicial_web_desactualizada":   "🆕 Inicial — web desactualizada",
+    "inicial_pagespeed_critico":    "⚡ Inicial — web lenta (PageSpeed)",
     "follow_up_sin_respuesta":      "🔁 Follow-up sin respuesta",
     "post_llamada_propuesta":       "📋 Post-llamada con cotización",
     "agradecimiento_visita":        "🤝 Agradecimiento de visita",

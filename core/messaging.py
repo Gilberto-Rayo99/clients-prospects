@@ -27,6 +27,23 @@ def _clean_phone(phone: str | None) -> str | None:
     return digits or None
 
 
+def _pagespeed_pitch_for(client: dict) -> str:
+    """Si el cliente tiene web y PageSpeed cacheado, devuelve la frase de venta.
+    Si no, devuelve placeholder neutro para que la plantilla no rompa."""
+    url = client.get("website")
+    if not url:
+        return "[sin web — esta plantilla aplica solo a negocios con sitio]"
+    try:
+        from core import pagespeed
+        data = pagespeed.get_score(url)  # cacheado, no spamea API
+        pitch = pagespeed.sales_pitch(data)
+        if pitch:
+            return pitch
+    except Exception as e:
+        logger.debug("pagespeed pitch falló: %s", e)
+    return "[corre PageSpeed primero desde la sección Datos del cliente]"
+
+
 def render_message(template_key: str, client: dict, landing_url: str = "") -> str:
     """Rellena la plantilla con datos del cliente.
 
@@ -50,6 +67,7 @@ def render_message(template_key: str, client: dict, landing_url: str = "") -> st
         tu_nombre=config.YOUR_NAME,
         direccion_corta=_short_address(client.get("address")),
         landing_url=landing_text,
+        pagespeed_pitch=_pagespeed_pitch_for(client),
     )
 
 
