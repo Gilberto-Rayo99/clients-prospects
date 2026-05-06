@@ -618,36 +618,34 @@ def generate_landing(business: dict) -> tuple[str, str]:
 # Export package para flujo claude.ai (NUEVO — flujo correcto)
 # ============================================================
 def export_landing_package(business: dict) -> tuple[bytes, dict]:
-    """Empaqueta `prompt.txt` + imágenes Gemini en un .zip listo para subir a claude.ai.
+    """Genera el prompt para claude.ai como `.txt` con el slug del negocio.
 
-    Flujo:
-      1. Genera (o reusa cache) las imágenes a medida con Gemini.
-      2. Construye el prompt v2 con rutas RELATIVAS al HTML que va a generar
-         claude.ai (ej. `img/hero.png`, no la ruta absoluta del filesystem).
-      3. Empaqueta todo en un zip en memoria con la estructura:
-            prompt.txt
-            README.md
-            img/hero.png
-            img/service-1.png
-            ...
+    Devuelve los bytes UTF-8 del prompt, listos para descargar como
+    `{slug}.txt`. El nombre coincide con el slug del cliente, así cuando
+    claude.ai te devuelva el HTML y lo guardes con el mismo nombre
+    (`{slug}.html`), la carga masiva del bulk upload empareja al 100%
+    por fuzzy match.
+
+    NOTA: la versión anterior empaquetaba imágenes Gemini en un zip.
+    Como Gemini Image salió del free tier y la app cae a Unsplash,
+    el .zip era puro ruido — un solo .txt es más simple y rápido de
+    arrastrar a claude.ai.
 
     Returns:
-        (zip_bytes, metadata) — metadata = {
-            "images_generated": int,
-            "remaining_today": int | None,
-            "had_gemini_key": bool,
+        (prompt_bytes_utf8, metadata) — metadata = {
+            "slug": str,
+            "filename": str,    # ej. "el-lugar-de-victor.txt"
+            "size": int,        # bytes
+            "had_gemini_key": bool,  # informativo
         }
     """
-    import io
-    import zipfile
-
     # Importar perezosamente para evitar import cycle con landing_prompt
     try:
         from core.landing_prompt import _detect_business_context  # type: ignore
     except Exception:
         _detect_business_context = None  # noqa: N806
 
-    # 1) Detectar giro real específico (heurística por palabras del nombre)
+    # Detectar giro real específico (heurística por palabras del nombre)
     giro_real_override = None
     if _detect_business_context is not None:
         try:
@@ -657,83 +655,24 @@ def export_landing_package(business: dict) -> tuple[bytes, dict]:
         except Exception:
             giro_real_override = None
 
-    # 2) Generar imágenes Gemini (cache por place_id si ya existen en disco)
-    from core import images as _img
-
-    gemini_imgs: dict[str, str] | None = None
-    had_key = bool(config.GEMINI_API_KEY)
-    try:
-        gemini_imgs = _img.generate_business_images(business)
-    except Exception as e:
-        logger.exception("export_landing_package: falló Gemini: %s", e)
-        gemini_imgs = None
-
-    # 3) Re-mapear paths para el prompt: dentro del zip las imágenes van a vivir
-    #    en `img/<slot>.png`, así que el HTML que genere claude.ai debe usar
-    #    exactamente esas rutas (no las del cache `img/<place_id>/...`).
-    prompt_imgs: dict[str, str] | None = None
-    if gemini_imgs:
-        prompt_imgs = {slot: f"img/{slot}.png" for slot in gemini_imgs.keys()}
-
     prompt_text = _build_prompt_v2(
         business,
-        gemini_imgs=prompt_imgs,
+        gemini_imgs=None,  # sin imágenes — claude.ai usa los keywords Unsplash del prompt
         giro_real_override=giro_real_override,
     )
 
-    # 4) Construir el zip en memoria
     name = business.get("name", "negocio")
     slug = _slugify(name)
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr(f"{slug}/prompt.txt", prompt_text)
-
-        # README explicando cómo usar el paquete
-        readme = (
-            f"# Paquete de landing — {name}\n\n"
-            "## Cómo usarlo en claude.ai\n\n"
-            "1. Abre **claude.ai** (con tu plan Pro/Max).\n"
-            "2. Inicia un chat nuevo y **adjunta** todos los archivos de este zip "
-            "(`prompt.txt` + las imágenes de la carpeta `img/`).\n"
-            "3. En el mensaje, pega: \"Sigue las instrucciones del prompt.txt y "
-            "genera el HTML completo de la landing usando las imágenes adjuntas. "
-            "Devuelve solo el HTML.\"\n"
-            "4. Cuando Claude te dé el HTML, **guárdalo como `index.html` "
-            "junto a la carpeta `img/`** que viene en este zip — así las rutas "
-            "relativas funcionan al abrirlo en el navegador.\n"
-            "5. Sube el `index.html` a la pestaña 📥 Cargar HTML del prospecto en "
-            "la app, o publícalo directo (Netlify, etc.).\n\n"
-            "## Estructura\n\n"
-            "```\n"
-            f"{slug}/\n"
-            "├── prompt.txt          ← instrucciones para claude.ai\n"
-            "├── README.md           ← este archivo\n"
-            "└── img/                ← imágenes generadas con Gemini Nano Banana\n"
-        )
-        if gemini_imgs:
-            for slot in gemini_imgs.keys():
-                readme += f"    ├── {slot}.png\n"
-        else:
-            readme += (
-                "    (vacío — Gemini no estaba disponible. El prompt usará Unsplash.)\n"
-            )
-        readme += "```\n"
-        zf.writestr(f"{slug}/README.md", readme)
-
-        # Imágenes
-        if gemini_imgs:
-            for slot, rel_cache_path in gemini_imgs.items():
-                full = config.LANDINGS_DIR / rel_cache_path
-                if full.exists() and full.stat().st_size > 0:
-                    zf.write(full, arcname=f"{slug}/img/{slot}.png")
+    filename = f"{slug}.txt"
+    payload = prompt_text.encode("utf-8")
 
     metadata = {
-        "images_generated": len(gemini_imgs) if gemini_imgs else 0,
-        "remaining_today": _img.remaining_today() if had_key else None,
-        "had_gemini_key": had_key,
         "slug": slug,
+        "filename": filename,
+        "size": len(payload),
+        "had_gemini_key": bool(config.GEMINI_API_KEY),
     }
-    return buf.getvalue(), metadata
+    return payload, metadata
 
 
 # ============================================================
@@ -744,120 +683,121 @@ def export_landing_packages_parallel(
     max_workers: int = 10,
     progress_cb=None,
 ) -> tuple[Path, list[dict]]:
-    """Genera N paquetes en paralelo y los empaqueta en un zip-de-zips en disco.
+    """Genera N prompts en paralelo y los empaqueta en un zip plano de `.txt`s.
 
-    El paralelismo es a nivel de PAQUETE (un thread por prospecto). Dentro
-    de cada paquete las 8 imágenes siguen siendo secuenciales — esto evita
-    saturar el rate-limit de Gemini (10 RPM en tier free).
+    Estructura del zip resultante:
+        MANIFEST.txt
+        {slug-empresa-1}.txt
+        {slug-empresa-2}.txt
+        ...
 
-    Para no quemar RAM en Streamlit Cloud, cada paquete se escribe a un
-    archivo temporal en disco, y el zip-de-zips final también va a disco.
+    Cuando claude.ai te devuelva el HTML, guárdalo con el mismo nombre
+    (`{slug-empresa-1}.html`) y al subirlo en la carga masiva el fuzzy
+    match acierta al 100% — sin revisión manual.
 
     Args:
         businesses: lista de dicts de prospectos.
-        max_workers: hilos concurrentes. Default 10 (sweet spot para
-            tier free de Gemini, no satura el rate-limit con paquetes
-            secuencialmente internos).
-        progress_cb: callable(done: int, total: int, last_name: str) que
-            se invoca cada vez que un paquete termina. Útil para st.progress.
+        max_workers: hilos concurrentes. Default 10 (suficiente para
+            generar prompts; cada uno solo construye texto, sin I/O externo).
+        progress_cb: callable(done: int, total: int, last_name: str).
 
     Returns:
-        (path_zip_final, results) donde results es una lista de dicts con
-        {name, ok, images, error}.
+        (path_zip_final, results) donde results = [{name, ok, slug, error}].
     """
     import concurrent.futures
-    import shutil
-    import tempfile
     import threading
     import zipfile
 
     if not businesses:
         raise ValueError("Lista de prospectos vacía")
 
-    # Carpeta persistente para el zip final (no temp): se queda dentro de
-    # outputs/ para que el usuario pueda descargar incluso después de que
-    # Streamlit haga rerun. Reusamos una única ruta y la sobrescribimos.
     out_dir = config.OUTPUTS_DIR / "lotes"
     out_dir.mkdir(parents=True, exist_ok=True)
-    final_zip_path = out_dir / f"landing_packages_{date.today().isoformat()}.zip"
+    final_zip_path = out_dir / f"landing_prompts_{date.today().isoformat()}.zip"
 
     results: list[dict] = []
     results_lock = threading.Lock()
     total = len(businesses)
     done = 0
 
-    # Trabajamos en un TemporaryDirectory: se borra solo al salir del with,
-    # incluso si hay excepción. Adiós a la basura en %TEMP%.
-    with tempfile.TemporaryDirectory(prefix="landing_pkgs_") as tmp_str:
-        tmp_root = Path(tmp_str)
+    def _worker(biz: dict) -> dict:
+        name = biz.get("name", "(sin nombre)")
+        try:
+            payload, meta = export_landing_package(biz)
+            return {
+                "name": name,
+                "ok": True,
+                "slug": meta["slug"],
+                "filename": meta["filename"],
+                "payload": payload,
+                "size": meta["size"],
+                "error": None,
+            }
+        except Exception as e:
+            logger.exception("Falló prompt para %s", name)
+            return {
+                "name": name,
+                "ok": False,
+                "slug": _slugify(name),
+                "filename": f"{_slugify(name)}.txt",
+                "payload": None,
+                "size": 0,
+                "error": str(e),
+            }
 
-        def _worker(biz: dict) -> dict:
-            name = biz.get("name", "(sin nombre)")
-            try:
-                zip_bytes, meta = export_landing_package(biz)
-                slug = meta.get("slug") or _slugify(name)
-                inner_path = tmp_root / f"{slug}__{biz.get('place_id') or biz.get('id', 'x')}.zip"
-                inner_path.write_bytes(zip_bytes)
-                return {
-                    "name": name,
-                    "ok": True,
-                    "inner_path": inner_path,
-                    "slug": slug,
-                    "images": meta.get("images_generated", 0),
-                    "error": None,
-                }
-            except Exception as e:
-                logger.exception("Falló paquete para %s", name)
-                return {
-                    "name": name,
-                    "ok": False,
-                    "inner_path": None,
-                    "slug": _slugify(name),
-                    "images": 0,
-                    "error": str(e),
-                }
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {pool.submit(_worker, b): b for b in businesses}
+        for fut in concurrent.futures.as_completed(futures):
+            res = fut.result()
+            with results_lock:
+                results.append(res)
+                done += 1
+                if progress_cb:
+                    try:
+                        progress_cb(done, total, res["name"])
+                    except Exception:
+                        pass
 
-        # Ejecución paralela. ThreadPool porque las llamadas Gemini son I/O-bound.
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
-            futures = {pool.submit(_worker, b): b for b in businesses}
-            for fut in concurrent.futures.as_completed(futures):
-                res = fut.result()
-                with results_lock:
-                    results.append(res)
-                    done += 1
-                    if progress_cb:
-                        try:
-                            progress_cb(done, total, res["name"])
-                        except Exception:
-                            pass  # nunca dejar caer un fallo de UI
+    # Zip plano: un .txt por prospecto en la raíz + MANIFEST
+    with zipfile.ZipFile(final_zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        n_ok = sum(1 for r in results if r["ok"])
+        n_err = sum(1 for r in results if not r["ok"])
+        manifest_lines = [
+            f"# Lote de prompts generado el {date.today().isoformat()}",
+            f"# Total: {total} prospectos · OK: {n_ok} · Errores: {n_err}",
+            "",
+            "Instrucciones:",
+            "1. Para cada .txt, abre un chat nuevo en claude.ai",
+            "2. Pega el contenido del .txt como mensaje",
+            "3. Guarda el HTML que te devuelva claude.ai con EL MISMO NOMBRE",
+            "   pero extensión .html (ej. el-lugar-de-victor.txt → el-lugar-de-victor.html)",
+            "4. Sube todos los .html a la app en 'Carga masiva' — el fuzzy match",
+            "   los empareja automáticamente con el cliente correcto.",
+            "",
+            "Archivos incluidos:",
+        ]
+        for r in results:
+            status = "OK" if r["ok"] else f"ERROR: {r['error']}"
+            manifest_lines.append(f"- {r['filename']:50s} → {r['name']} · {status}")
+        zf.writestr("MANIFEST.txt", "\n".join(manifest_lines))
 
-        # Zip-de-zips final, escrito a la ruta persistente
-        with zipfile.ZipFile(final_zip_path, "w", zipfile.ZIP_DEFLATED) as outer:
-            manifest_lines = [
-                f"# Lote de paquetes generado el {date.today().isoformat()}",
-                f"# Total: {total} prospectos · OK: {sum(1 for r in results if r['ok'])} · "
-                f"Errores: {sum(1 for r in results if not r['ok'])}",
-                "",
-            ]
-            for r in results:
-                status = "OK" if r["ok"] else f"ERROR: {r['error']}"
-                manifest_lines.append(f"- {r['name']:40s} → {r['images']} imgs · {status}")
-            outer.writestr("MANIFEST.txt", "\n".join(manifest_lines))
+        for r in results:
+            if r["ok"] and r["payload"]:
+                zf.writestr(r["filename"], r["payload"])
 
-            for r in results:
-                if r["ok"] and r["inner_path"] and r["inner_path"].exists():
-                    arcname = f"{r['slug']}.zip"
-                    outer.write(r["inner_path"], arcname=arcname)
-
-        # tmp_root se autoborra al cerrar el with — gracias TemporaryDirectory.
-
-    # Limpieza eventual de lotes viejos en out_dir (>7 días) para no inflar disco
+    # Limpieza eventual de lotes viejos (>7 días)
     try:
         import time
-        for old in out_dir.glob("landing_packages_*.zip"):
-            if time.time() - old.stat().st_mtime > 7 * 86400:
-                old.unlink(missing_ok=True)
+        for pattern in ("landing_packages_*.zip", "landing_prompts_*.zip"):
+            for old in out_dir.glob(pattern):
+                if time.time() - old.stat().st_mtime > 7 * 86400:
+                    old.unlink(missing_ok=True)
     except Exception:
         pass
+
+    # Limpiar payload de los results (ya no lo necesitamos en memoria una vez
+    # escrito el zip; los results son solo para la UI)
+    for r in results:
+        r.pop("payload", None)
 
     return final_zip_path, results

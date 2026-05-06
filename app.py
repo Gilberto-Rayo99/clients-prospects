@@ -1,10 +1,8 @@
 """Streamlit app — Prospector Web (RAIO Development)."""
 from __future__ import annotations
 
-import io
 import logging
 import re
-import zipfile
 from datetime import date, datetime
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -999,86 +997,63 @@ with tab_clients:
 
                 with tab_prompt:
                     st.caption(
-                        "Dos formas de generar la landing en claude.ai:\n\n"
-                        "**🅰️ Rápida (sin imágenes a medida):** copia el prompt de abajo, "
-                        "pégalo en claude.ai, copia el HTML que te devuelva, súbelo "
-                        "en la pestaña **📥 Cargar HTML**. Las imágenes serán de Unsplash.\n\n"
-                        "**🅱️ Premium (con imágenes generadas):** descarga el paquete `.zip` "
-                        "(prompt + imágenes hechas a medida con Gemini Nano Banana). "
-                        "Descomprímelo, sube todos los archivos a claude.ai en un chat, "
-                        "y el HTML que te dé usará esas fotos reales del giro."
+                        "**Flujo:**\n"
+                        "1. Click **⬇️ Descargar prompt.txt** (o copia el prompt de abajo).\n"
+                        "2. Abre claude.ai → adjunta el `.txt` o pega el prompt → pídele "
+                        "el HTML completo de la landing.\n"
+                        "3. Guarda el HTML que te devuelva con el **mismo nombre** del .txt "
+                        "pero extensión `.html` (ej. `el-lugar-de-victor.txt` → `el-lugar-de-victor.html`).\n"
+                        "4. Súbelo en **📥 Cargar HTML** o en la **carga masiva** — el fuzzy "
+                        "match empareja al 100% al coincidir el nombre."
                     )
 
-                    # ===== 🅱️ Paquete con imágenes Gemini =====
-                    st.markdown("##### 🅱️ Paquete premium (prompt + imágenes Gemini)")
+                    # ===== Descarga directa del prompt como .txt =====
                     pkg_state_key = f"landing_pkg_{sel_id}"
 
-                    if not config.GEMINI_API_KEY:
-                        st.info(
-                            "ℹ️ Sin `GEMINI_API_KEY`. El paquete se genera con prompt+Unsplash "
-                            "(sin imágenes a medida). Para fotos generadas necesitas key + "
-                            "**paid tier** en https://aistudio.google.com/ → Settings → Plan. "
-                            "Costo: ~$0.039 USD/img × 8 imgs = ~$0.31 USD por paquete."
-                        )
-                    # Si ya hay un error reciente de cuota, mostrarlo
-                    from core import images as _img_mod_indiv
-                    _last_err_indiv = _img_mod_indiv.last_error()
-                    if _last_err_indiv and "cuota" in _last_err_indiv.lower():
-                        st.error(f"⚠️ {_last_err_indiv}")
-
-                    # Botón "Generar" SIEMPRE visible (incluso sin key — devolverá zip
-                    # sin imágenes pero con el prompt v2). Layout en stack (no columnas)
-                    # para que el download nunca se corte ni se esconda.
                     if st.button(
-                        "📦 Generar paquete (~1-2 min con Gemini, instantáneo sin)",
+                        "📝 Generar prompt.txt para este cliente",
                         key=f"genpkg_{sel_id}",
                         type="primary",
                         use_container_width=True,
                     ):
-                        with st.spinner("Generando imágenes con Gemini y empaquetando..."):
-                            try:
-                                from core.landing import export_landing_package
-                                zip_bytes, meta = export_landing_package(cli)
-                                st.session_state[pkg_state_key] = {
-                                    "bytes": zip_bytes,
-                                    "meta": meta,
-                                }
-                                if meta["images_generated"]:
-                                    st.success(
-                                        f"✅ {meta['images_generated']} imágenes generadas. "
-                                        f"Quedan **{meta['remaining_today']}** hoy."
-                                    )
-                                else:
-                                    st.info(
-                                        "ℹ️ Sin imágenes Gemini. El zip incluye el prompt "
-                                        "con instrucciones de Unsplash."
-                                    )
-                            except Exception as e:
-                                logger.exception("Falló export_landing_package")
-                                st.error(f"Error: {e}")
+                        try:
+                            from core.landing import export_landing_package
+                            payload, meta = export_landing_package(cli)
+                            st.session_state[pkg_state_key] = {
+                                "bytes": payload,
+                                "meta": meta,
+                            }
+                            st.success(
+                                f"✅ Generado · `{meta['filename']}` ({meta['size']:,} bytes)"
+                            )
+                        except Exception as e:
+                            logger.exception("Falló export_landing_package")
+                            st.error(f"Error: {e}")
 
-                    # Botón de descarga: SIEMPRE renderizado en su propia fila
+                    # Botón de descarga: aparece después de generar
                     pkg = st.session_state.get(pkg_state_key)
                     if pkg and pkg.get("bytes"):
                         st.download_button(
-                            f"⬇️ Descargar zip ({len(pkg['bytes']) // 1024} KB)",
+                            f"⬇️ Descargar `{pkg['meta']['filename']}` "
+                            f"({pkg['meta']['size'] // 1024} KB)",
                             data=pkg["bytes"],
-                            file_name=f"{pkg['meta']['slug']}_landing_package.zip",
-                            mime="application/zip",
+                            file_name=pkg["meta"]["filename"],
+                            mime="text/plain",
                             key=f"dlpkg_{sel_id}",
                             use_container_width=True,
                         )
                         st.caption(
-                            f"📦 {pkg['meta'].get('images_generated', 0)} imágenes · "
-                            f"slug `{pkg['meta'].get('slug')}`"
+                            f"💡 Cuando claude.ai te devuelva el HTML, guárdalo como "
+                            f"`{pkg['meta']['slug']}.html` para que la carga masiva lo "
+                            "empareje automáticamente con este cliente."
                         )
                     else:
-                        st.caption("ℹ️ Click en **Generar paquete** primero — el botón de descarga aparecerá aquí.")
+                        st.caption("ℹ️ Click en **Generar prompt.txt** primero — el botón de descarga aparecerá aquí.")
 
                     st.markdown("---")
 
-                    # ===== 🅰️ Prompt rápido (texto plano) =====
-                    st.markdown("##### 🅰️ Prompt rápido (Unsplash)")
+                    # ===== Prompt en texto plano (alternativa rápida — copy/paste) =====
+                    st.markdown("##### 📋 Prompt en texto (copy/paste)")
                     prompt_text = build_landing_prompt(cli)
                     # Sin `key=` a propósito — si la ponemos, Streamlit cachea el valor
                     # inicial y no se refresca cuando el cliente cambia (nombre, datos…).
@@ -1288,98 +1263,19 @@ with tab_export:
             st.success(msg)
             _refresh()
 
+        # ============================================================
+        # 📋 Prompts en lote (un .txt por cliente, en zip plano)
+        # ============================================================
         st.markdown("---")
-        st.markdown("### Prompts de Claude")
+        st.markdown("### 📋 Prompts en lote para claude.ai")
         st.caption(
-            "Genera un archivo `.txt` por cliente con el prompt listo para pegar en claude.ai. "
-            "Filtra por estado y descarga solo los que necesitas."
+            "Genera un `.txt` por cliente con el prompt listo. El zip resultante "
+            "trae todos los `.txt` planos (sin subcarpetas), nombrados con el slug "
+            "del negocio. Cuando claude.ai te devuelva los HTML, guárdalos con el "
+            "**mismo nombre** + `.html` y la carga masiva los empareja al 100%."
         )
 
         _all_estados = sorted({c.get("estado") or "Pendiente" for c in all_clients})
-        _estados_prompt = st.multiselect(
-            "Filtrar por estado",
-            options=_all_estados,
-            default=_all_estados,
-            key="zip_estados_filter",
-            help="Selecciona los estados que quieres incluir en el ZIP.",
-        )
-
-        _clientes_zip = [c for c in all_clients if (c.get("estado") or "Pendiente") in _estados_prompt]
-        st.caption(f"Se incluirán **{len(_clientes_zip)}** de {len(all_clients)} clientes.")
-
-        if st.button(
-            f"📋 Exportar prompts de Claude — {len(_clientes_zip)} clientes (ZIP)",
-            use_container_width=True,
-            disabled=not _clientes_zip,
-        ):
-            def _slugify(name: str) -> str:
-                s = (name or "cliente").lower()
-                s = re.sub(r"[^a-z0-9]+", "_", s).strip("_")
-                return s or "cliente"
-
-            buf = io.BytesIO()
-            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-                for cli in _clientes_zip:
-                    prompt = build_landing_prompt(cli)
-                    estado = re.sub(r"[^a-z0-9]+", "_", (cli.get("estado") or "pendiente").lower()).strip("_")
-                    filename = f"{_slugify(cli['name'])}__{estado}.txt"
-                    zf.writestr(filename, prompt)
-            buf.seek(0)
-            st.download_button(
-                "⬇️ Descargar ZIP de prompts",
-                data=buf,
-                file_name=f"prompts_claude_{date.today().strftime('%Y%m%d')}.zip",
-                mime="application/zip",
-                use_container_width=True,
-            )
-
-        # ============================================================
-        # 📦 Paquetes PREMIUM en lote (prompt + imágenes Gemini, en paralelo)
-        # ============================================================
-        st.markdown("---")
-        st.markdown("### 📦 Paquetes premium en lote (con imágenes Gemini)")
-
-        if not config.GEMINI_API_KEY:
-            st.info(
-                "ℹ️ Sin `GEMINI_API_KEY`. El lote genera prompts con instrucciones "
-                "de Unsplash (sin fotos a medida). Para fotos generadas: key + "
-                "**paid tier** en https://aistudio.google.com/ (~$0.039/img)."
-            )
-            with st.expander("🔍 Diagnóstico de Secrets (debug)"):
-                st.json(config.secrets_diagnostic())
-                st.caption(
-                    "Si `st_secrets_top_keys` muestra `['GEMINI_API_KEY', ...]` pero "
-                    "`gemini_via_secret_fn` es `false`, el valor está vacío o tiene "
-                    "comillas/espacios extra. El formato correcto en Streamlit Cloud "
-                    "Secrets es exactamente:\n\n"
-                    "`GEMINI_API_KEY = \"AIza...\"` (sin punto y coma, sin espacios alrededor del =)"
-                )
-
-        from core import images as _img_mod
-
-        # Si la última generación falló (lote anterior con 0 imgs), mostrarlo
-        _last_err = _img_mod.last_error()
-        if _last_err and config.GEMINI_API_KEY:
-            st.error(
-                f"⚠️ Última llamada a Gemini falló: `{_last_err}`. "
-                "El siguiente intento limpia este aviso si tiene éxito."
-            )
-
-        _restante = _img_mod.remaining_today() if config.GEMINI_API_KEY else 0
-        _por_paquete = config.GEMINI_IMAGES_PER_LANDING
-        _max_pkgs_cuota = (_restante // _por_paquete) if (_por_paquete > 0 and config.GEMINI_API_KEY) else 9999
-
-        st.caption(
-            f"Genera el zip-de-zips para los clientes filtrados. Cada paquete usa "
-            f"~{_por_paquete} imágenes Gemini (cache si ya existen). "
-            + (
-                f"Hoy quedan **{_restante}** imágenes en tu cupo gratuito → "
-                f"hasta **{_max_pkgs_cuota}** paquetes nuevos como máximo."
-                if config.GEMINI_API_KEY else
-                "Sin GEMINI_API_KEY → paquetes solo con prompt (sin imágenes)."
-            )
-        )
-
         _estados_pkg = st.multiselect(
             "Filtrar por estado",
             options=_all_estados,
@@ -1392,24 +1288,13 @@ with tab_export:
             if (c.get("estado") or "Pendiente") in _estados_pkg
         ]
 
-        # Cap dinámico: lo menor entre seleccionados y cuota disponible
-        _cap_efectivo = min(len(_clientes_pkg), _max_pkgs_cuota) if _clientes_pkg else 0
-        _se_recortan = config.GEMINI_API_KEY and len(_clientes_pkg) > _max_pkgs_cuota and _max_pkgs_cuota > 0
-
         col_pp1, col_pp2 = st.columns(2)
         col_pp1.metric("Filtrados", len(_clientes_pkg))
-        col_pp2.metric("Se procesarán", _cap_efectivo)
+        col_pp2.metric("Se procesarán", len(_clientes_pkg))
 
-        if _se_recortan:
-            st.warning(
-                f"⚠️ Tu cupo solo alcanza para {_max_pkgs_cuota} paquetes nuevos. "
-                f"Procesaré los primeros {_cap_efectivo} de los {len(_clientes_pkg)} filtrados. "
-                f"Si los clientes ya tienen imágenes en cache no consumen cuota."
-            )
-
-        _disabled = (_cap_efectivo == 0)
+        _disabled = (len(_clientes_pkg) == 0)
         _btn_label = (
-            f"📦 Generar {_cap_efectivo} paquetes en paralelo (~1-3 min)"
+            f"📋 Generar {len(_clientes_pkg)} prompts en paralelo"
             if not _disabled
             else "Sin clientes filtrados"
         )
@@ -1424,32 +1309,28 @@ with tab_export:
         ):
             from core.landing import export_landing_packages_parallel
 
-            _to_process = _clientes_pkg[:_cap_efectivo]
             progress_bar = st.progress(0.0, text="Iniciando…")
             status_box = st.empty()
 
             def _cb(done: int, total: int, last_name: str):
                 progress_bar.progress(
                     done / total,
-                    text=f"{done}/{total} paquetes listos · último: {last_name}",
+                    text=f"{done}/{total} prompts listos · último: {last_name}",
                 )
 
             try:
                 final_path, lote_results = export_landing_packages_parallel(
-                    _to_process,
+                    _clientes_pkg,
                     max_workers=10,
                     progress_cb=_cb,
                 )
                 progress_bar.empty()
                 n_ok = sum(1 for r in lote_results if r["ok"])
                 n_fail = sum(1 for r in lote_results if not r["ok"])
-                n_imgs = sum(r["images"] for r in lote_results)
                 status_box.success(
-                    f"✅ {n_ok} paquetes generados · {n_imgs} imágenes Gemini · "
-                    f"{n_fail} fallaron · cupo restante: {_img_mod.remaining_today()}/{config.GEMINI_DAILY_BUDGET}"
+                    f"✅ {n_ok} prompts generados"
+                    + (f" · {n_fail} fallaron" if n_fail else "")
                 )
-                # Leer los bytes AHORA y guardarlos en session_state para que la
-                # descarga sobreviva aunque se limpie outputs/lotes/.
                 zip_bytes_lote = final_path.read_bytes()
                 st.session_state[_pkg_lote_state_key] = {
                     "bytes": zip_bytes_lote,
@@ -1461,14 +1342,12 @@ with tab_export:
                 logger.exception("Falló export_landing_packages_parallel")
                 status_box.error(f"Error: {e}")
 
-        # Botón de descarga: SIEMPRE renderizado fuera del if del botón generar.
-        # Lee los bytes del session_state (no del path) para que sobreviva limpieza.
         _pkg_lote = st.session_state.get(_pkg_lote_state_key)
         if _pkg_lote and _pkg_lote.get("bytes"):
             st.download_button(
-                f"⬇️ Descargar zip-de-zips ({_pkg_lote['size'] // 1024} KB)",
+                f"⬇️ Descargar zip de prompts ({_pkg_lote['size'] // 1024} KB)",
                 data=_pkg_lote["bytes"],
-                file_name=f"landing_packages_{date.today().strftime('%Y%m%d')}.zip",
+                file_name=f"landing_prompts_{date.today().strftime('%Y%m%d')}.zip",
                 mime="application/zip",
                 use_container_width=True,
                 key="dl_pkg_lote",
@@ -1476,10 +1355,10 @@ with tab_export:
             with st.expander("📋 Ver detalle del lote"):
                 for r in _pkg_lote["results"]:
                     icon = "✅" if r["ok"] else "❌"
-                    extra = f" · {r['images']} imgs" if r["ok"] else f" · {r['error']}"
+                    extra = f" · `{r['filename']}`" if r["ok"] else f" · {r['error']}"
                     st.write(f"{icon} {r['name']}{extra}")
         else:
-            st.caption("ℹ️ Click en **Generar paquetes** primero — el botón de descarga aparecerá aquí.")
+            st.caption("ℹ️ Click en **Generar prompts** primero — el botón de descarga aparecerá aquí.")
 
         st.markdown("---")
         st.markdown("### 📤 Carga masiva de landings")

@@ -4,6 +4,11 @@ HELP_SECTIONS = [
     {
         "title": "🆕 Novedades de este release",
         "content": """
+**A. 📋 Estructura del prompt simplificada (TXT plano)**
+- Tanto el botón individual como el lote ahora generan **`.txt` plano** (no zip-de-zips, no subcarpetas).
+- El nombre del archivo es el slug del negocio (ej. `el-lugar-de-victor.txt`).
+- **Truco**: cuando claude.ai te devuelva el HTML, guárdalo con **el mismo nombre** + `.html` (`el-lugar-de-victor.html`). Al subirlo en la **carga masiva** el fuzzy match acierta al 100% sin revisión manual.
+
 **0. ⚡ PageSpeed Insights — argumento de venta automático**
 - En **👥 Mis clientes → Datos del negocio**, si el cliente tiene web aparece un botón **"🔄 Analizar con PageSpeed"**.
 - Llama a la API gratis de Google (25k req/día) y trae el score real: móvil + desktop, LCP, FCP.
