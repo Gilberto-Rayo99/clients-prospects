@@ -1510,6 +1510,7 @@ with tab_export:
                 key="bulk_html_save",
             ):
                 saved_ok, saved_fail, pub_ok, pub_fail = 0, 0, 0, 0
+                saved_ids: list[str] = []
                 for uf, cname in confirmed:
                     cid = _cid_map.get(cname)
                     if not cid:
@@ -1518,6 +1519,7 @@ with tab_export:
                     html_text = uf.read().decode("utf-8", errors="replace")
                     clients_store.save_landing_html(cid, html_text)
                     saved_ok += 1
+                    saved_ids.append(cid)
 
                     if _bulk_autopub and config.NETLIFY_API_TOKEN:
                         try:
@@ -1547,7 +1549,88 @@ with tab_export:
                     st.success(msg)
                 if saved_fail:
                     st.warning(f"{saved_fail} no se pudieron guardar.")
+
+                # Persistir IDs recién guardados para el render inline post-rerun
+                st.session_state["bulk_just_saved"] = {
+                    "ids": saved_ids,
+                    "published": _bulk_autopub,
+                    "ts": datetime.now().isoformat(timespec="seconds"),
+                }
                 _refresh()
+
+        # ---- 📲 Lista inline "Listos para mandar" (post-bulk save) ----
+        _recent = st.session_state.get("bulk_just_saved")
+        if _recent and _recent.get("ids"):
+            st.markdown("---")
+            st.markdown(f"### 📲 Listos para mandar — {len(_recent['ids'])} recién cargados")
+            st.caption(
+                "El HTML y la URL Netlify ya están guardados. "
+                "Manda el WhatsApp en un click y marca como enviado. "
+                "O salta a Automatización para procesarlos en lote."
+            )
+
+            for cid in _recent["ids"]:
+                cli = clients_store.get(cid, include_html=False)
+                if not cli:
+                    continue
+
+                rcol1, rcol2, rcol3, rcol4 = st.columns([3, 2, 2, 1])
+                with rcol1:
+                    st.markdown(f"**{cli['name']}**")
+                    st.caption(f"{STATUS_BADGE.get(cli.get('estado'), '')} {cli.get('estado', '—')} · {cli.get('category', '')}")
+                with rcol2:
+                    nurl = cli.get("netlify_url") or ""
+                    if nurl:
+                        st.markdown(f"🌐 [Netlify]({nurl})")
+                    else:
+                        st.caption("⚠️ sin URL Netlify")
+                with rcol3:
+                    if cli.get("phone"):
+                        # Plantilla por defecto según contexto
+                        if cli.get("website"):
+                            _bulk_tpl = "inicial_web_desactualizada"
+                        else:
+                            _bulk_tpl = "inicial_sin_web"
+                        _bulk_msg = render_message(_bulk_tpl, cli, nurl)
+                        _wa_url = whatsapp_url(cli, _bulk_msg)
+                        if _wa_url:
+                            st.link_button(
+                                "📲 WhatsApp", _wa_url,
+                                use_container_width=True,
+                            )
+                    else:
+                        st.caption("📵 sin tel")
+                with rcol4:
+                    if st.button("✅", key=f"bulk_sent_{cid}",
+                                 help="Marcar como Mensaje enviado"):
+                        clients_store.update(cid, estado="Mensaje enviado")
+                        st.toast(f"✅ {cli['name']}", icon="📤")
+                        _refresh()
+
+            # Acciones del lote
+            st.markdown("")
+            ac1, ac2 = st.columns(2)
+            with ac1:
+                if st.button(
+                    f"🚀 Pre-cargar {len(_recent['ids'])} en Automatización",
+                    use_container_width=True,
+                    type="primary",
+                    key="bulk_to_auto",
+                    help="Carga estos clientes en la pestaña 🔄 Automatización ya filtrados.",
+                ):
+                    st.session_state["automation_preset_ids"] = list(_recent["ids"])
+                    st.toast(
+                        "Pre-cargado · cambia a la pestaña 🔄 Automatización arriba",
+                        icon="🚀",
+                    )
+            with ac2:
+                if st.button(
+                    "Cerrar esta lista",
+                    use_container_width=True,
+                    key="bulk_dismiss",
+                ):
+                    st.session_state["bulk_just_saved"] = None
+                    st.rerun()
 
         st.markdown("---")
         st.markdown("### Resumen rápido")
@@ -1586,6 +1669,20 @@ with tab_automation:
     # Estado del tab
     st.session_state.setdefault("auto_imported_ids", [])
     st.session_state.setdefault("auto_results", [])
+    st.session_state.setdefault("automation_preset_ids", None)
+
+    # ===== Banner: pre-carga desde bulk upload =====
+    _preset_ids = st.session_state.get("automation_preset_ids")
+    if _preset_ids:
+        st.success(
+            f"📥 **Pre-cargados {len(_preset_ids)} clientes desde la carga masiva** — "
+            "los filtros de abajo están deshabilitados, se procesarán solo estos."
+        )
+        if st.button("✖️ Limpiar pre-carga (volver a usar filtros normales)",
+                     key="auto_clear_preset"):
+            st.session_state["automation_preset_ids"] = None
+            st.rerun()
+        st.markdown("---")
 
     # ===== Paso 1: Subir Excel =====
     st.markdown("#### 1️⃣ Subir Excel de prospectos")
@@ -1625,30 +1722,39 @@ with tab_automation:
     if not all_clients:
         st.info("Aún no hay clientes. Importa un Excel arriba o ve a 🔍 Buscar prospectos.")
     else:
-        f1, f2, f3 = st.columns(3)
-        with f1:
-            min_score_auto = st.slider("Score mínimo", 1, 10, 7, key="auto_min_score")
-        with f2:
-            estados_filtro = st.multiselect(
-                "Solo estados",
-                options=["Pendiente", "Mensaje listo", "Falta landing", "Sin teléfono", "Mensaje enviado"],
-                default=["Pendiente", "Falta landing"],
-                key="auto_estados",
+        if _preset_ids:
+            # Modo pre-carga: ignora filtros, usa los IDs pasados desde bulk upload
+            _preset_set = set(_preset_ids)
+            candidatos = [c for c in all_clients if c["id"] in _preset_set]
+            st.caption(
+                f"🔒 Filtros deshabilitados — usando los {len(candidatos)} clientes "
+                "pre-cargados. Click 'Limpiar pre-carga' arriba para volver al modo normal."
             )
-        with f3:
-            cats_filtro = st.multiselect(
-                "Solo categorías (vacío = todas)",
-                options=config.CATEGORIES,
-                default=[],
-                key="auto_cats",
-            )
+        else:
+            f1, f2, f3 = st.columns(3)
+            with f1:
+                min_score_auto = st.slider("Score mínimo", 1, 10, 7, key="auto_min_score")
+            with f2:
+                estados_filtro = st.multiselect(
+                    "Solo estados",
+                    options=["Pendiente", "Mensaje listo", "Falta landing", "Sin teléfono", "Mensaje enviado"],
+                    default=["Pendiente", "Falta landing"],
+                    key="auto_estados",
+                )
+            with f3:
+                cats_filtro = st.multiselect(
+                    "Solo categorías (vacío = todas)",
+                    options=config.CATEGORIES,
+                    default=[],
+                    key="auto_cats",
+                )
 
-        candidatos = [
-            c for c in all_clients
-            if (c.get("score") or 0) >= min_score_auto
-            and (not estados_filtro or c.get("estado") in estados_filtro)
-            and (not cats_filtro or c.get("category") in cats_filtro)
-        ]
+            candidatos = [
+                c for c in all_clients
+                if (c.get("score") or 0) >= min_score_auto
+                and (not estados_filtro or c.get("estado") in estados_filtro)
+                and (not cats_filtro or c.get("category") in cats_filtro)
+            ]
 
         # Métricas
         c_total = len(candidatos)

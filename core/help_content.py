@@ -4,6 +4,11 @@ HELP_SECTIONS = [
     {
         "title": "🆕 Novedades de este release",
         "content": """
+**B. 📲 Cierre de ciclo en bulk upload**
+- Después de **💾 Guardar N landings** en la carga masiva aparece una lista **"📲 Listos para mandar"** con cada cliente recién cargado.
+- Cada fila trae: estado actual + URL Netlify + botón **📲 WhatsApp** (con plantilla y URL ya rellenadas) + ✅ para marcar como enviado en un click.
+- Botón al pie: **🚀 Pre-cargar N en Automatización** que pasa los IDs a la pestaña 🔄 Automatización con filtros deshabilitados — perfecto para procesar el lote en una sola corrida sin reseleccionar nada.
+
 **A. 📋 Estructura del prompt simplificada (TXT plano)**
 - Tanto el botón individual como el lote ahora generan **`.txt` plano** (no zip-de-zips, no subcarpetas).
 - El nombre del archivo es el slug del negocio (ej. `el-lugar-de-victor.txt`).
