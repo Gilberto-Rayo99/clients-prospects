@@ -240,29 +240,80 @@ def _business_dir(business: dict) -> Path:
 # ============================================================
 # Llamada real a Gemini
 # ============================================================
+# Cache del último error para que la UI pueda mostrarlo si todo el lote
+# devolvió 0 imágenes.
+_LAST_ERROR: Optional[str] = None
+
+
+def last_error() -> Optional[str]:
+    return _LAST_ERROR
+
+
+def _set_last_error(msg: Optional[str]) -> None:
+    global _LAST_ERROR
+    _LAST_ERROR = msg
+
+
 def _gemini_generate_one(prompt: str, out_path: Path) -> bool:
-    """Genera UNA imagen con gemini-2.5-flash-image. Retorna True si tuvo éxito."""
-    from google import genai
+    """Genera UNA imagen con gemini-2.5-flash-image. Retorna True si tuvo éxito.
+
+    Importante: el modelo de imagen necesita `response_modalities=['TEXT','IMAGE']`
+    en el config — si se omite, devuelve solo texto y nunca llega la imagen.
+    """
+    try:
+        from google import genai
+        from google.genai import types
+    except Exception as e:
+        _set_last_error(f"google-genai no instalado: {e}")
+        logger.error("google-genai no instalado: %s", e)
+        return False
 
     client = genai.Client(api_key=config.GEMINI_API_KEY)
     try:
         resp = client.models.generate_content(
             model=config.GEMINI_IMAGE_MODEL,
-            contents=prompt,
+            contents=[prompt],
+            config=types.GenerateContentConfig(
+                response_modalities=["TEXT", "IMAGE"],
+            ),
         )
     except Exception as e:
-        logger.warning("Gemini falló para %s: %s", out_path.name, e)
+        msg = f"Gemini API falló ({type(e).__name__}): {e}"
+        _set_last_error(msg)
+        logger.warning("%s [out=%s]", msg, out_path.name)
         return False
 
-    # La SDK devuelve partes; la imagen viene como inline_data con mime image/png
-    try:
-        for part in resp.candidates[0].content.parts:
-            inline = getattr(part, "inline_data", None)
-            if inline and getattr(inline, "data", None):
+    # Extraer imagen de la respuesta (puede venir en resp.parts o resp.candidates[0]…)
+    parts = getattr(resp, "parts", None)
+    if not parts:
+        try:
+            parts = resp.candidates[0].content.parts
+        except Exception:
+            parts = []
+
+    text_chunks: list[str] = []
+    for part in parts or []:
+        inline = getattr(part, "inline_data", None)
+        if inline and getattr(inline, "data", None):
+            try:
                 out_path.write_bytes(inline.data)
                 return True
-    except Exception as e:
-        logger.warning("No pude leer imagen de respuesta Gemini: %s", e)
+            except Exception as e:
+                msg = f"No pude escribir imagen a disco: {e}"
+                _set_last_error(msg)
+                logger.warning("%s [path=%s]", msg, out_path)
+                return False
+        ptext = getattr(part, "text", None)
+        if ptext:
+            text_chunks.append(ptext)
+
+    # No vino imagen. Loguear lo que sí vino para diagnóstico.
+    msg = (
+        "Respuesta Gemini sin inline_data (¿response_modalities mal configurado "
+        f"o cuota agotada?). Texto recibido: {(' '.join(text_chunks))[:200]!r}"
+    )
+    _set_last_error(msg)
+    logger.warning("%s [out=%s]", msg, out_path.name)
     return False
 
 

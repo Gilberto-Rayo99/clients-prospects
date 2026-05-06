@@ -1273,6 +1273,14 @@ with tab_export:
 
         from core import images as _img_mod
 
+        # Si la última generación falló (lote anterior con 0 imgs), mostrarlo
+        _last_err = _img_mod.last_error()
+        if _last_err and config.GEMINI_API_KEY:
+            st.error(
+                f"⚠️ Última llamada a Gemini falló: `{_last_err}`. "
+                "El siguiente intento limpia este aviso si tiene éxito."
+            )
+
         _restante = _img_mod.remaining_today() if config.GEMINI_API_KEY else 0
         _por_paquete = config.GEMINI_IMAGES_PER_LANDING
         _max_pkgs_cuota = (_restante // _por_paquete) if (_por_paquete > 0 and config.GEMINI_API_KEY) else 9999
