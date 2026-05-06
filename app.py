@@ -853,7 +853,8 @@ with tab_clients:
                     # ===== ⚡ PageSpeed Insights =====
                     if cli.get("website"):
                         from core import pagespeed as _ps
-                        _ps_data = _ps.get_score(cli["website"])  # cacheado 30d
+                        # read_only en el render — solo cache, nunca dispara API
+                        _ps_data = _ps.get_score(cli["website"], read_only=True)
                         st.markdown("**⚡ PageSpeed Google:**")
                         if _ps_data:
                             _m, _d = _ps_data.get("mobile_score"), _ps_data.get("desktop_score")
@@ -871,18 +872,24 @@ with tab_clients:
                                     "para mencionarlo en el WhatsApp."
                                 )
                         else:
-                            st.caption("_(no analizado todavía)_")
+                            # Si hay error cacheado, mostrarlo
+                            _ps_err = _ps.last_error_for(cli["website"])
+                            if _ps_err:
+                                st.warning(f"⚠️ {_ps_err}")
+                            else:
+                                st.caption("_(no analizado todavía)_")
                         if st.button(
                             "🔄 Analizar con PageSpeed (~30s)",
                             key=f"ps_refresh_{sel_id}",
-                            help="Llama a PageSpeed Insights de Google. Cache 30 días.",
+                            help="Llama a PageSpeed Insights de Google. Cache 30 días (errores 1h).",
                         ):
                             with st.spinner("Consultando PageSpeed Insights..."):
                                 _new = _ps.get_score(cli["website"], force_refresh=True)
                                 if _new:
                                     st.success(f"Listo · móvil {_new.get('mobile_score')}/100")
                                 else:
-                                    st.error("PageSpeed no devolvió datos. Intenta más tarde.")
+                                    _err = _ps.last_error_for(cli["website"]) or "PageSpeed no devolvió datos."
+                                    st.error(_err)
                                 _refresh()
 
                 with col_right:
@@ -975,7 +982,7 @@ with tab_clients:
                             # Si tenemos PageSpeed crítico cacheado, prioriza esa plantilla
                             try:
                                 from core import pagespeed as _ps_tpl
-                                _ps_tpl_data = _ps_tpl.get_score(cli["website"])
+                                _ps_tpl_data = _ps_tpl.get_score(cli["website"], read_only=True)
                                 if _ps_tpl_data and (_ps_tpl_data.get("mobile_score") or 100) < 50:
                                     default_tpl = "inicial_pagespeed_critico"
                                 else:

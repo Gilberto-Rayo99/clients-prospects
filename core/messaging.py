@@ -29,13 +29,14 @@ def _clean_phone(phone: str | None) -> str | None:
 
 def _pagespeed_pitch_for(client: dict) -> str:
     """Si el cliente tiene web y PageSpeed cacheado, devuelve la frase de venta.
-    Si no, devuelve placeholder neutro para que la plantilla no rompa."""
+    NUNCA llama al API desde aquí (read_only=True) — esta función la invocan
+    los reruns de Streamlit en cada render, así que un API call sería desastre."""
     url = client.get("website")
     if not url:
         return "[sin web — esta plantilla aplica solo a negocios con sitio]"
     try:
         from core import pagespeed
-        data = pagespeed.get_score(url)  # cacheado, no spamea API
+        data = pagespeed.get_score(url, read_only=True)
         pitch = pagespeed.sales_pitch(data)
         if pitch:
             return pitch
