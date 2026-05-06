@@ -48,6 +48,68 @@ def _slugify(name: str, max_len: int = 40) -> str:
     return s or "site"
 
 
+_MAX_RETRY_WAIT_S = 60  # nunca dormir más de 60s entre reintentos
+
+
+def _parse_retry_after(value: str | None, default: int = 5) -> int:
+    """Parsea Retry-After de manera robusta.
+
+    El estándar HTTP (RFC 7231) define dos formatos:
+      - Delta-seconds:  "120"
+      - HTTP-date:      "Wed, 21 Oct 2026 07:28:00 GMT"
+
+    Pero algunos servidores mandan otra cosa (ej. timestamp Unix absoluto)
+    y pueden tirar valores absurdos. Esta función:
+      1. Si es int "razonable" (≤300) → úsalo directo.
+      2. Si es int grande pero parece timestamp Unix futuro próximo →
+         calcula delta = ts - now y capa a _MAX_RETRY_WAIT_S.
+      3. Si parece HTTP-date → parsea y capa a _MAX_RETRY_WAIT_S.
+      4. Cualquier otra cosa → default 5s.
+
+    Siempre retorna como máximo _MAX_RETRY_WAIT_S — si Netlify legítimamente
+    nos pide esperar más, mejor abortar la operación que bloquear el thread.
+    """
+    if not value:
+        return default
+    s = value.strip()
+
+    # Intento 1: int (delta-seconds o timestamp absoluto)
+    try:
+        n = int(s)
+        if n <= 0:
+            return default
+        if n <= _MAX_RETRY_WAIT_S:
+            return n
+        # Valores muy grandes — quizá timestamp Unix
+        now = int(time.time())
+        if n > now and (n - now) < 86400:
+            delta = n - now
+            capped = min(delta, _MAX_RETRY_WAIT_S)
+            logger.warning(
+                "Retry-After parece timestamp absoluto (%s) → delta=%ds, capando a %ds",
+                s, delta, capped,
+            )
+            return capped
+        # Demasiado grande para tener sentido → asumimos basura
+        logger.warning(
+            "Retry-After absurdo (%s, %ds), capando a %ds", s, n, _MAX_RETRY_WAIT_S,
+        )
+        return _MAX_RETRY_WAIT_S
+    except ValueError:
+        pass
+
+    # Intento 2: HTTP-date
+    try:
+        from email.utils import parsedate_to_datetime
+        dt = parsedate_to_datetime(s)
+        delta = int(dt.timestamp() - time.time())
+        return max(default, min(delta, _MAX_RETRY_WAIT_S))
+    except Exception:
+        pass
+
+    return default
+
+
 def _request(method: str, path: str, **kwargs) -> requests.Response:
     """Wrapper con retries y manejo de errores."""
     url = f"{API_BASE}{path}" if path.startswith("/") else path
@@ -56,16 +118,21 @@ def _request(method: str, path: str, **kwargs) -> requests.Response:
         try:
             r = requests.request(method, url, timeout=TIMEOUT, **kwargs)
             if r.status_code == 429:
-                wait = int(r.headers.get("Retry-After", "5"))
-                logger.warning("Rate limit Netlify, esperando %ds", wait)
+                wait = _parse_retry_after(r.headers.get("Retry-After"))
+                logger.warning(
+                    "Rate limit Netlify (429), esperando %ds (intento %d/3)",
+                    wait, attempt + 1,
+                )
                 time.sleep(wait)
                 continue
             return r
         except requests.RequestException as e:
             last_err = e
             logger.warning("Netlify request falló (intento %d): %s", attempt + 1, e)
-            time.sleep(2 ** attempt)
-    raise NetlifyError(f"Falló request a Netlify: {last_err}")
+            time.sleep(min(2 ** attempt, _MAX_RETRY_WAIT_S))
+    raise NetlifyError(
+        f"Falló request a Netlify tras 3 intentos: {last_err or 'rate limit persistente'}"
+    )
 
 
 def _create_site(name_base: str) -> dict:
