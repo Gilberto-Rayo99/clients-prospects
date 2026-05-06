@@ -1327,22 +1327,114 @@ with tab_export:
             "**mismo nombre** + `.html` y la carga masiva los empareja al 100%."
         )
 
+        from core.score import _is_real_website as _is_real_web_pkg
+
         _all_estados = sorted({c.get("estado") or "Pendiente" for c in all_clients})
-        _estados_pkg = st.multiselect(
-            "Filtrar por estado",
-            options=_all_estados,
-            default=_all_estados,
-            key="pkg_estados_filter",
-            help="Solo se incluirán los clientes con uno de estos estados.",
-        )
-        _clientes_pkg = [
-            c for c in all_clients
-            if (c.get("estado") or "Pendiente") in _estados_pkg
-        ]
+        _all_cats_pkg = sorted({(c.get("category") or "Otros") for c in all_clients})
+
+        # Fila 1: estado + categoría
+        pf1, pf2 = st.columns(2)
+        with pf1:
+            _estados_pkg = st.multiselect(
+                "Estado",
+                options=_all_estados,
+                default=_all_estados,
+                key="pkg_estados_filter",
+                help="Solo se incluirán los clientes con uno de estos estados.",
+            )
+        with pf2:
+            _cats_pkg = st.multiselect(
+                "Categoría",
+                options=_all_cats_pkg,
+                default=[],
+                key="pkg_cats_filter",
+                placeholder="Todas",
+            )
+
+        # Fila 2: score + web + email
+        pf3, pf4, pf5 = st.columns([1, 2, 1])
+        with pf3:
+            _min_score_pkg = st.slider(
+                "Score mínimo",
+                min_value=1, max_value=10, value=1,
+                key="pkg_score_filter",
+            )
+        with pf4:
+            _web_pkg = st.selectbox(
+                "Web",
+                options=["Todos", "Sin web", "Web desactualizada", "Con web propia"],
+                index=0,
+                key="pkg_web_filter",
+            )
+        with pf5:
+            _email_pkg = st.selectbox(
+                "Email",
+                options=["Todos", "Con email", "Sin email"],
+                index=0,
+                key="pkg_email_filter",
+            )
+
+        # Fila 3: orden + sin landing previa
+        pf6, pf7 = st.columns(2)
+        with pf6:
+            _order_pkg = st.selectbox(
+                "Ordenar",
+                options=["Score ↓", "Más recientes", "Nombre"],
+                index=0,
+                key="pkg_order_filter",
+            )
+        with pf7:
+            _solo_sin_landing = st.checkbox(
+                "Solo clientes sin landing aún",
+                value=False,
+                key="pkg_no_landing_filter",
+                help="Útil para no regenerar prompts de clientes que ya tienen su HTML cargado.",
+            )
+
+        # Aplicar filtros
+        _clientes_pkg = list(all_clients)
+        _clientes_pkg = [c for c in _clientes_pkg if (c.get("estado") or "Pendiente") in _estados_pkg]
+        if _cats_pkg:
+            _clientes_pkg = [c for c in _clientes_pkg if (c.get("category") or "Otros") in _cats_pkg]
+        _clientes_pkg = [c for c in _clientes_pkg if (c.get("score") or 0) >= _min_score_pkg]
+
+        if _web_pkg == "Sin web":
+            _clientes_pkg = [c for c in _clientes_pkg if not c.get("website")]
+        elif _web_pkg == "Web desactualizada":
+            _clientes_pkg = [c for c in _clientes_pkg if c.get("website") and not _is_real_web_pkg(c.get("website"))]
+        elif _web_pkg == "Con web propia":
+            _clientes_pkg = [c for c in _clientes_pkg if c.get("website") and _is_real_web_pkg(c.get("website"))]
+
+        if _email_pkg == "Con email":
+            _clientes_pkg = [c for c in _clientes_pkg if c.get("email")]
+        elif _email_pkg == "Sin email":
+            _clientes_pkg = [c for c in _clientes_pkg if not c.get("email")]
+
+        if _solo_sin_landing:
+            _clientes_pkg = [c for c in _clientes_pkg if not c.get("landing_path")]
+
+        # Orden
+        if _order_pkg == "Score ↓":
+            _clientes_pkg.sort(key=lambda c: c.get("score") or 0, reverse=True)
+        elif _order_pkg == "Más recientes":
+            _clientes_pkg.sort(key=lambda c: c.get("fecha_modificado") or "", reverse=True)
+        else:
+            _clientes_pkg.sort(key=lambda c: (c.get("name") or "").lower())
 
         col_pp1, col_pp2 = st.columns(2)
-        col_pp1.metric("Filtrados", len(_clientes_pkg))
+        col_pp1.metric("Filtrados", f"{len(_clientes_pkg)}/{len(all_clients)}")
         col_pp2.metric("Se procesarán", len(_clientes_pkg))
+
+        # Vista previa de los nombres que se incluirán (primeros 15)
+        if _clientes_pkg:
+            with st.expander(f"Ver vista previa de los {len(_clientes_pkg)} a incluir"):
+                for i, c in enumerate(_clientes_pkg[:15], 1):
+                    st.caption(
+                        f"{i}. **{c['name']}** · score {c.get('score', '—')} · "
+                        f"{c.get('category', '')} · {c.get('estado', '')}"
+                    )
+                if len(_clientes_pkg) > 15:
+                    st.caption(f"… y {len(_clientes_pkg) - 15} más.")
 
         _disabled = (len(_clientes_pkg) == 0)
         _btn_label = (
