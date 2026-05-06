@@ -726,6 +726,8 @@ with tab_clients:
             st.markdown("---")
 
         # ---- Filtros ----
+        from core.score import _is_real_website  # heurística compartida
+
         f1, f2, f3 = st.columns([2, 2, 1])
         with f1:
             filter_estado = st.multiselect(
@@ -739,10 +741,53 @@ with tab_clients:
         with f3:
             order_by = st.selectbox("Ordenar", ["Score ↓", "Más recientes", "Nombre"])
 
+        # Segunda fila — filtros por contenido del cliente
+        f4, f5, f6 = st.columns([1, 2, 1])
+        with f4:
+            filter_web = st.selectbox(
+                "Web",
+                options=["Todos", "Sin web", "Web desactualizada", "Con web propia"],
+                index=0,
+                help=(
+                    "• **Sin web**: el negocio no tiene sitio.\n"
+                    "• **Web desactualizada**: usa Wix/Facebook/Blogspot/etc — no cuenta como web real.\n"
+                    "• **Con web propia**: tiene dominio propio funcional."
+                ),
+            )
+        with f5:
+            _cats_present = sorted({(c.get("category") or "Otros") for c in all_clients})
+            filter_categoria = st.multiselect(
+                "Categoría",
+                options=_cats_present,
+                default=[],
+                placeholder="Todas",
+            )
+        with f6:
+            filter_email = st.selectbox(
+                "Email",
+                options=["Todos", "Con email", "Sin email"],
+                index=0,
+            )
+
         filtered = list(all_clients)
         if filter_estado:
             filtered = [c for c in filtered if c.get("estado") in filter_estado]
         filtered = [c for c in filtered if (c.get("score") or 0) >= filter_score]
+
+        if filter_web == "Sin web":
+            filtered = [c for c in filtered if not c.get("website")]
+        elif filter_web == "Web desactualizada":
+            filtered = [c for c in filtered if c.get("website") and not _is_real_website(c.get("website"))]
+        elif filter_web == "Con web propia":
+            filtered = [c for c in filtered if c.get("website") and _is_real_website(c.get("website"))]
+
+        if filter_categoria:
+            filtered = [c for c in filtered if (c.get("category") or "Otros") in filter_categoria]
+
+        if filter_email == "Con email":
+            filtered = [c for c in filtered if c.get("email")]
+        elif filter_email == "Sin email":
+            filtered = [c for c in filtered if not c.get("email")]
 
         if order_by == "Score ↓":
             filtered.sort(key=lambda c: c.get("score") or 0, reverse=True)
