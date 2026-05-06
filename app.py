@@ -78,18 +78,26 @@ def _save_landing_and_optionally_publish(client_id: str, html: str, auto_publish
 
     Diseñado para reducir el flujo manual: subir HTML → guardar → ir a tab
     Automation → publicar. Ahora todo en un click si NETLIFY_API_TOKEN existe.
+
+    Importante: al final SIEMPRE llama `_refresh()` para invalidar el caché
+    de clientes. Si auto-publicó, también fuerza el valor del widget de
+    URL Netlify del cliente (`netlify_{id}`) para que el text_input lo
+    muestre actualizado y el mensaje de WhatsApp use la URL nueva — sin
+    eso Streamlit mantiene el valor viejo del widget aunque la DB cambie.
     """
     cli = clients_store.save_landing_html(client_id, html)
     if not cli:
         st.error("No pude guardar la landing.")
-        return
+        return  # sin refresh — el error se queda visible
 
     if not auto_publish:
         st.success("Landing guardada.")
+        _refresh()
         return
 
     if not config.NETLIFY_API_TOKEN:
         st.warning("Landing guardada (sin Netlify token configurado, no se publicó).")
+        _refresh()
         return
 
     try:
@@ -102,10 +110,18 @@ def _save_landing_and_optionally_publish(client_id: str, html: str, auto_publish
             netlify_site_id=res["site_id"],
             netlify_deploy_at=datetime.now().isoformat(timespec="seconds"),
         )
+        # Forzar el valor del widget URL Netlify para que el text_input
+        # de la sección WhatsApp se refresque con la URL nueva. Sin esto
+        # Streamlit mantiene el valor anterior del widget aunque cambie
+        # cli.get("netlify_url") → el mensaje de WhatsApp queda con la
+        # URL vieja.
+        st.session_state[f"netlify_{client_id}"] = res["url"]
         st.success(f"✅ Guardada y publicada: {res['url']}")
     except Exception as e:
         logger.exception("Auto-publish Netlify falló")
         st.warning(f"Landing guardada, pero falló Netlify: {e}")
+
+    _refresh()
 
 
 def _process_prospects(prospects: list[dict]) -> list[dict]:
