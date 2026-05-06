@@ -248,14 +248,15 @@ def run_phase_a(
         rendered = render_message(template_key, cli, res["url"])
         wa = whatsapp_url(cli, rendered)
 
-        # 6) Persistir
-        clients_store.update(
-            cid,
-            netlify_url=res["url"],
-            netlify_site_id=res["site_id"],
-            netlify_deploy_at=datetime.now().isoformat(timespec="seconds"),
-            estado="Mensaje listo",
-        )
+        # 6) Persistir — no actualizar deploy_at si fue skipped (sin deploy real)
+        update_fields = {
+            "netlify_url": res["url"],
+            "netlify_site_id": res["site_id"],
+            "estado": "Mensaje listo",
+        }
+        if not res.get("skipped"):
+            update_fields["netlify_deploy_at"] = datetime.now().isoformat(timespec="seconds")
+        clients_store.update(cid, **update_fields)
 
         results.append({
             "id": cid, "name": name, "ok": True,

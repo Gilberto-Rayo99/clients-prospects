@@ -255,6 +255,41 @@ Se abre automáticamente en `http://localhost:8501`
 - Genera imágenes a medida del giro del negocio (no Unsplash). Cache local
   por `place_id` y contador de cuota thread-safe en `outputs/.gemini_usage.json`.
 
+### Netlify (hosting de landings)
+- Plan Free actual (sistema de credits 2024+): **300 credits/mes**.
+  Cada production deploy = **15 credits** → ~20 deploys/mes free.
+- Optimizaciones implementadas en `core/netlify.py::publish_html`:
+  - **Hash-check**: si re-deploy con HTML idéntico al cacheado en
+    `app_kv:netlify_hash:<site_id>`, devuelve URL existente sin gastar
+    credits. Pasar `force=True` lo salta.
+  - **Contador mensual** en `app_kv:netlify_deploys:YYYY-MM`,
+    incrementado solo en deploys reales (no skipped).
+  - `deploys_this_month()` y `credits_used_this_month()` exponen el
+    estado para mostrar métrica en el sidebar de la app.
+
+#### Alternativas FREE si Netlify no alcanza (Plan B)
+Si el usuario consume más de ~20 deploys/mes consistentemente y no quiere
+pagar Pro (~$19/mes), considerar migrar a:
+
+| Servicio | Free tier | Pros | Contras |
+|---|---|---|---|
+| **Cloudflare Pages** | 500 builds/mes, sin sistema de credits, bandwidth ilimitado | Mucho más generoso · CDN global | API menos directa para upload de HTML standalone (orientado a Git) |
+| **GitHub Pages** | Ilimitado para repos públicos | Sin límites prácticos | Requiere Git push por cada deploy · landing visible públicamente en el repo |
+| **Surge.sh** | Unlimited static hosting | CLI súper simple (`surge ./` → publicado) | Sin custom domain en free tier |
+| **Render.com** | 100GB bandwidth/mes static | Buen CDN | Solo 100GB |
+| **Vercel** | 100GB bandwidth, 6000 min builds | Pulido | Términos de uso prohíben "client work" en free tier oficialmente |
+
+**Para implementar Plan B** sin romper el flujo actual:
+1. Crear `core/hosting/<provider>.py` con la misma interfaz que `netlify.py`:
+   `publish_html(html, name, site_id=None) -> {url, site_id, skipped, ...}`
+2. Añadir `HOSTING_PROVIDER` en `config.py` (default `netlify`).
+3. En `app.py` y `core/automation.py`, importar dinámicamente según ese flag.
+4. Migración: por cliente, mantener `hosting_provider` en el record para
+   saber dónde está deployado.
+
+Mientras Netlify alcance, no hace falta tocar esto. Documentado por si
+en algún ciclo futuro se rebasa la cuota.
+
 ---
 
 ## Notas del negocio (contexto para el LLM)

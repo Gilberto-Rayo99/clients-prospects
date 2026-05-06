@@ -4,6 +4,12 @@ HELP_SECTIONS = [
     {
         "title": "🆕 Novedades de este release",
         "content": """
+**G. 🚀 Optimización de credits Netlify**
+Netlify free da **300 credits/mes** (15 por deploy = ~20 deploys/mes free). Dos mejoras nuevas:
+- **Hash-check**: al re-publicar el mismo HTML para un cliente, se compara con el último deploy cacheado. Si es idéntico → skip + URL existente, **sin gastar credits**. Aparece como `ℹ️ HTML idéntico al último deploy → no se publicó (ahorraste 15 credits)`.
+- **Métrica en sidebar**: arriba a la izquierda verás `🚀 Credits Netlify (mes)` con el conteo en vivo. Avisa con ⚠️ amarillo a 75% y rojo a 90%. Si llegas al 100%, mejor desactiva auto-publish hasta el reset del ciclo.
+Si rebasas los 20 deploys/mes consistentemente, en `CLAUDE.md` está documentado el Plan B con alternativas free (Cloudflare Pages, Surge, etc.).
+
 **F. 🔁 Recuperación persistente de Netlify (en Mis clientes)**
 Si subes un lote sin marcar **🚀 Auto-publicar** o si Netlify rechaza algunos publishes por rate limit, ya no necesitas re-subir los archivos. **En la pestaña 👥 Mis clientes** verás un expander persistente:
 

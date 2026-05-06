@@ -149,14 +149,19 @@ def _publish_pending_netlify(client_ids: list[str], progress_cb=None) -> list[di
                 cli.get("name", ""),
                 site_id=cli.get("netlify_site_id"),
             )
-            clients_store.update(
-                cid,
-                netlify_url=res["url"],
-                netlify_site_id=res["site_id"],
-                netlify_deploy_at=datetime.now().isoformat(timespec="seconds"),
-            )
+            # Si fue skipped por hash, no actualizamos el deploy_at
+            # (ningún deploy real ocurrió). El URL ya estaba bien.
+            update_fields = {
+                "netlify_url": res["url"],
+                "netlify_site_id": res["site_id"],
+            }
+            if not res.get("skipped"):
+                update_fields["netlify_deploy_at"] = datetime.now().isoformat(timespec="seconds")
+            clients_store.update(cid, **update_fields)
             results.append({
-                "name": cli["name"], "ok": True, "skipped": False, "url": res["url"],
+                "name": cli["name"], "ok": True,
+                "skipped": bool(res.get("skipped")),
+                "url": res["url"],
             })
         except Exception as e:
             logger.exception("Publish Netlify falló para %s", cli.get("name"))
@@ -206,19 +211,26 @@ def _save_landing_and_optionally_publish(client_id: str, html: str, auto_publish
         from core import netlify as _netlify
         with st.spinner("Publicando en Netlify..."):
             res = _netlify.publish_html(html, cli.get("name", ""), site_id=cli.get("netlify_site_id"))
-        clients_store.update(
-            client_id,
-            netlify_url=res["url"],
-            netlify_site_id=res["site_id"],
-            netlify_deploy_at=datetime.now().isoformat(timespec="seconds"),
-        )
+        update_fields = {
+            "netlify_url": res["url"],
+            "netlify_site_id": res["site_id"],
+        }
+        if not res.get("skipped"):
+            update_fields["netlify_deploy_at"] = datetime.now().isoformat(timespec="seconds")
+        clients_store.update(client_id, **update_fields)
         # Forzar el valor del widget URL Netlify para que el text_input
         # de la sección WhatsApp se refresque con la URL nueva. Sin esto
         # Streamlit mantiene el valor anterior del widget aunque cambie
         # cli.get("netlify_url") → el mensaje de WhatsApp queda con la
         # URL vieja.
         st.session_state[f"netlify_{client_id}"] = res["url"]
-        st.success(f"✅ Guardada y publicada: {res['url']}")
+        if res.get("skipped"):
+            st.info(
+                f"ℹ️ HTML idéntico al último deploy → no se publicó (ahorraste 15 credits). "
+                f"URL existente: {res['url']}"
+            )
+        else:
+            st.success(f"✅ Guardada y publicada: {res['url']}")
     except Exception as e:
         logger.exception("Auto-publish Netlify falló")
         st.warning(f"Landing guardada, pero falló Netlify: {e}")
@@ -395,6 +407,33 @@ with st.sidebar:
     st.caption(f"**{config.AGENCY_NAME}**")
     n_clients = len(_clients())
     st.metric("👥 Clientes guardados", n_clients)
+
+    # Métrica de credits Netlify del mes en curso (300 free/mes, 15 por deploy)
+    if config.NETLIFY_API_TOKEN:
+        try:
+            from core import netlify as _netlify_metric
+            _credits_used = _netlify_metric.credits_used_this_month()
+            _credits_total = _netlify_metric.CREDITS_FREE_MONTHLY
+            _deploys = _netlify_metric.deploys_this_month()
+            _pct = (_credits_used / _credits_total) * 100 if _credits_total else 0
+            _delta_color = "normal" if _pct < 80 else "inverse"
+            st.metric(
+                "🚀 Credits Netlify (mes)",
+                f"{_credits_used}/{_credits_total}",
+                delta=f"{_deploys} deploys ({_pct:.0f}%)",
+                delta_color=_delta_color,
+                help=(
+                    "Plan Free: 300 credits/mes · 15 credits por production deploy "
+                    "= ~20 deploys/mes free. El hash-check evita re-deploy si el HTML "
+                    "es idéntico, ahorrando credits. Resetea cada mes en tu billing cycle."
+                ),
+            )
+            if _pct >= 90:
+                st.error("⚠️ Cuota casi agotada — desactiva auto-publish hasta el reset del ciclo.")
+            elif _pct >= 75:
+                st.warning("⚠️ 75%+ de credits usados — modera los deploys.")
+        except Exception:
+            pass
 
     if config.USE_MOCK_DATA:
         st.info("🧪 Modo DEMO. Configura las API keys en `.env` y `USE_MOCK_DATA=false` para datos reales.")
@@ -2133,16 +2172,19 @@ with tab_export:
                                 html_text, cli_obj.get("name", cname),
                                 site_id=cli_obj.get("netlify_site_id"),
                             )
-                            clients_store.update(
-                                cid,
-                                netlify_url=res["url"],
-                                netlify_site_id=res["site_id"],
-                                netlify_deploy_at=datetime.now().isoformat(timespec="seconds"),
-                            )
+                            update_fields = {
+                                "netlify_url": res["url"],
+                                "netlify_site_id": res["site_id"],
+                            }
+                            if not res.get("skipped"):
+                                update_fields["netlify_deploy_at"] = (
+                                    datetime.now().isoformat(timespec="seconds")
+                                )
+                            clients_store.update(cid, **update_fields)
                             pub_ok += 1
-                            # Throttle suave para no saturar el rate limit del
-                            # token de Netlify cuando son muchos seguidos.
-                            _time.sleep(0.5)
+                            # Throttle solo si fue deploy real — los skipped son instantáneos
+                            if not res.get("skipped"):
+                                _time.sleep(0.5)
                         except Exception:
                             logger.exception("Bulk auto-publish falló para %s", cname)
                             pub_fail += 1
