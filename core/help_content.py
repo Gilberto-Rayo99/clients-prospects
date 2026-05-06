@@ -4,6 +4,9 @@ HELP_SECTIONS = [
     {
         "title": "🆕 Novedades de este release",
         "content": """
+**H. 📲 Envío rápido en Mis clientes (filtro 'Mensaje listo')**
+Cuando el filtro de estado en Mis clientes incluye **"Mensaje listo"**, aparece un expander auto-abierto **"📲 N cliente(s) en 'Mensaje listo' — envío rápido"** con el mismo layout que el panel post-bulk: por cada cliente una fila con nombre + URL Netlify + botón **📲 WhatsApp** (con plantilla y URL ya rellenadas) + ✅ para marcar como enviado en un click. Sin necesidad de seleccionar cliente uno por uno. Cap a 30 visibles para no saturar; usa categoría/score para reducir.
+
 **G. 🚀 Optimización de credits Netlify**
 Netlify free da **300 credits/mes** (15 por deploy = ~20 deploys/mes free). Dos mejoras nuevas:
 - **Hash-check**: al re-publicar el mismo HTML para un cliente, se compara con el último deploy cacheado. Si es idéntico → skip + URL existente, **sin gastar credits**. Aparece como `ℹ️ HTML idéntico al último deploy → no se publicó (ahorraste 15 credits)`.

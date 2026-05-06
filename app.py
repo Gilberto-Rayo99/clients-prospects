@@ -180,6 +180,59 @@ def _publish_pending_netlify(client_ids: list[str], progress_cb=None) -> list[di
     return results
 
 
+def _render_quick_send_row(cli: dict, key_prefix: str) -> None:
+    """Pinta una fila compacta de envío rápido para un cliente.
+
+    Layout en 4 columnas: nombre+estado · Netlify URL · botón WhatsApp · ✅ enviado.
+    Se reutiliza en:
+    - Panel "📲 Listos para mandar" del bulk upload (key_prefix="bulk").
+    - Expander "Envío rápido" en Mis clientes al filtrar Mensaje listo (key_prefix="ml").
+
+    Args:
+        cli: dict del cliente. Debe tener al menos id, name, estado, category.
+        key_prefix: namespace para evitar choques de Streamlit keys entre panels
+            que rendericen el mismo cliente simultáneamente.
+    """
+    cid = cli["id"]
+    rcol1, rcol2, rcol3, rcol4 = st.columns([3, 2, 2, 1])
+    with rcol1:
+        st.markdown(f"**{cli['name']}**")
+        st.caption(
+            f"{STATUS_BADGE.get(cli.get('estado'), '')} "
+            f"{cli.get('estado', '—')} · {cli.get('category', '')}"
+        )
+    with rcol2:
+        nurl = cli.get("netlify_url") or ""
+        if nurl:
+            st.markdown(f"✅ [Netlify]({nurl})")
+        else:
+            st.markdown(":red[❌ Sin publicar]")
+    with rcol3:
+        if cli.get("phone"):
+            # Plantilla por defecto según contexto del cliente
+            if cli.get("website"):
+                _tpl_key = "inicial_web_desactualizada"
+            else:
+                _tpl_key = "inicial_sin_web"
+            _msg = render_message(_tpl_key, cli, nurl)
+            _wa = whatsapp_url(cli, _msg)
+            if _wa:
+                st.link_button("📲 WhatsApp", _wa, use_container_width=True)
+            else:
+                st.caption("📵 sin tel")
+        else:
+            st.caption("📵 sin tel")
+    with rcol4:
+        if st.button(
+            "✅",
+            key=f"{key_prefix}_sent_{cid}",
+            help="Marcar como Mensaje enviado",
+        ):
+            clients_store.update(cid, estado="Mensaje enviado")
+            st.toast(f"✅ {cli['name']}", icon="📤")
+            _refresh()
+
+
 def _save_landing_and_optionally_publish(client_id: str, html: str, auto_publish: bool) -> None:
     """Guarda la landing y, si `auto_publish`, la sube a Netlify de un golpe.
 
@@ -1057,6 +1110,31 @@ with tab_clients:
             filtered.sort(key=lambda c: (c.get("name") or "").lower())
 
         st.caption(f"Mostrando **{len(filtered)}** de {len(all_clients)} clientes")
+
+        # ---- 📲 Panel "Envío rápido" (cuando hay Mensaje listo en el filtrado) ----
+        # Mismo layout que el post-bulk: nombre + URL Netlify + WhatsApp + ✅ enviado.
+        # Auto-expandido si el usuario filtró explícitamente por "Mensaje listo".
+        _ml_in_filtered = [c for c in filtered if c.get("estado") == "Mensaje listo"]
+        _explicit_ml_filter = bool(filter_estado) and "Mensaje listo" in filter_estado
+        if _ml_in_filtered:
+            with st.expander(
+                f"📲 **{len(_ml_in_filtered)} cliente(s) en 'Mensaje listo' — envío rápido**",
+                expanded=_explicit_ml_filter,
+            ):
+                st.caption(
+                    "Plantilla y URL Netlify ya rellenadas según el contexto del cliente. "
+                    "Click en 📲 WhatsApp → revisa → manda → ✅ marca como enviado. "
+                    "Sin salir de aquí."
+                )
+                _CAP_ML = 30
+                for cli_ml in _ml_in_filtered[:_CAP_ML]:
+                    _render_quick_send_row(cli_ml, key_prefix="ml")
+                if len(_ml_in_filtered) > _CAP_ML:
+                    st.caption(
+                        f"… y {len(_ml_in_filtered) - _CAP_ML} más. "
+                        "Filtra por categoría/score para reducir la lista."
+                    )
+
         st.markdown("---")
 
         # ---- Selector de cliente ----
@@ -2222,39 +2300,7 @@ with tab_export:
                 cli = clients_store.get(cid, include_html=False)
                 if not cli:
                     continue
-
-                rcol1, rcol2, rcol3, rcol4 = st.columns([3, 2, 2, 1])
-                with rcol1:
-                    st.markdown(f"**{cli['name']}**")
-                    st.caption(f"{STATUS_BADGE.get(cli.get('estado'), '')} {cli.get('estado', '—')} · {cli.get('category', '')}")
-                with rcol2:
-                    nurl = cli.get("netlify_url") or ""
-                    if nurl:
-                        st.markdown(f"✅ [Netlify]({nurl})")
-                    else:
-                        st.markdown(":red[❌ Sin publicar]")
-                with rcol3:
-                    if cli.get("phone"):
-                        # Plantilla por defecto según contexto
-                        if cli.get("website"):
-                            _bulk_tpl = "inicial_web_desactualizada"
-                        else:
-                            _bulk_tpl = "inicial_sin_web"
-                        _bulk_msg = render_message(_bulk_tpl, cli, nurl)
-                        _wa_url = whatsapp_url(cli, _bulk_msg)
-                        if _wa_url:
-                            st.link_button(
-                                "📲 WhatsApp", _wa_url,
-                                use_container_width=True,
-                            )
-                    else:
-                        st.caption("📵 sin tel")
-                with rcol4:
-                    if st.button("✅", key=f"bulk_sent_{cid}",
-                                 help="Marcar como Mensaje enviado"):
-                        clients_store.update(cid, estado="Mensaje enviado")
-                        st.toast(f"✅ {cli['name']}", icon="📤")
-                        _refresh()
+                _render_quick_send_row(cli, key_prefix="bulk")
 
             # ===== Acción especial: publicar pendientes en Netlify =====
             # Útil cuando: (a) no marcaste auto-publish la primera vez, o
