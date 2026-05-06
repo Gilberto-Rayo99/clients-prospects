@@ -15,10 +15,14 @@ HELP_SECTIONS = [
 - **Si tienes URL Netlify para el cliente**, el PDF lleva un QR escaneable — el prospecto saca el celular, escanea, ve la demo. Impacto enorme en visitas presenciales.
 - Pestaña **📤 Exportar → 📄 Propuestas PDF en lote** con los mismos filtros que prompts (estado, categoría, score, web, email) + filtro extra "Solo con landing publicada (QR funcional)". Genera N PDFs en un zip plano.
 
-**B. 📲 Cierre de ciclo en bulk upload**
+**B. 📲 Cierre de ciclo en bulk upload (con PDFs integrados)**
 - Después de **💾 Guardar N landings** en la carga masiva aparece una lista **"📲 Listos para mandar"** con cada cliente recién cargado.
 - Cada fila trae: estado actual + URL Netlify + botón **📲 WhatsApp** (con plantilla y URL ya rellenadas) + ✅ para marcar como enviado en un click.
-- Botón al pie: **🚀 Pre-cargar N en Automatización** que pasa los IDs a la pestaña 🔄 Automatización con filtros deshabilitados — perfecto para procesar el lote en una sola corrida sin reseleccionar nada.
+- 3 botones al pie:
+  - **📄 Generar PDFs del lote** — crea los PDFs de propuesta para todos los recién cargados, **con QR funcional** porque la URL Netlify ya está fresca. Se queda guardado el `pdf_path` por cliente, así el botón individual "Descargar PDF" en Mis clientes funciona después automáticamente.
+  - **🚀 Pre-cargar N en Automatización** que pasa los IDs a la pestaña 🔄 Automatización con filtros deshabilitados — perfecto para procesar el lote en una sola corrida sin reseleccionar nada.
+  - **Cerrar esta lista** para limpiar la sección.
+- ¿Cuándo usar la sección "📄 PDFs en lote (backfill)" del Exportar? Solo para **regenerar PDFs de clientes antiguos** por filtros. Para el flujo nuevo (subir HTML → publicar → generar PDF), usa el botón integrado del bulk upload.
 
 **A. 📋 Estructura del prompt simplificada (TXT plano)**
 - Tanto el botón individual como el lote ahora generan **`.txt` plano** (no zip-de-zips, no subcarpetas).

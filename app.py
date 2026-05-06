@@ -1347,14 +1347,16 @@ with tab_export:
             _refresh()
 
         # ============================================================
-        # 📄 Propuestas PDF en lote
+        # 📄 Propuestas PDF en lote (modo backfill / por filtros)
         # ============================================================
         st.markdown("---")
-        st.markdown("### 📄 Propuestas PDF en lote")
-        st.caption(
-            "Genera un PDF de propuesta para cada cliente filtrado y los empaqueta "
-            "en un zip. Cada PDF incluye QR a la landing publicada (si existe), "
-            "PageSpeed (si lo analizaste), beneficios por giro y precio cotizado del cliente."
+        st.markdown("### 📄 Propuestas PDF en lote (backfill)")
+        st.info(
+            "💡 **Si acabas de subir landings** en la sección **📤 Carga masiva** "
+            "(arriba), usa el botón **📄 Generar PDFs del lote** que aparece ahí — "
+            "es el flujo recomendado porque los PDFs salen con la URL Netlify "
+            "fresca (QR funcional). Esta sección es para **regenerar PDFs de "
+            "clientes antiguos** filtrando por categoría/score/etc."
         )
 
         from core.score import _is_real_website as _is_real_web_pdf
@@ -1963,8 +1965,67 @@ with tab_export:
 
             # Acciones del lote
             st.markdown("")
-            ac1, ac2 = st.columns(2)
+            ac1, ac2, ac3 = st.columns(3)
             with ac1:
+                # Generar PDFs del lote — usa los datos frescos (URL Netlify
+                # ya cargada → QR funcional, PageSpeed cacheado si lo tenías).
+                if st.button(
+                    f"📄 Generar PDFs del lote ({len(_recent['ids'])})",
+                    use_container_width=True,
+                    key="bulk_gen_pdfs",
+                    help=(
+                        "Genera el PDF de propuesta para cada cliente recién "
+                        "cargado, con QR a la landing publicada si tiene URL Netlify. "
+                        "El pdf_path queda guardado por cliente para que el botón "
+                        "individual 'Descargar PDF' funcione después."
+                    ),
+                ):
+                    from export.pdf_proposal import generate_pdf_proposals_batch
+                    biz_list = []
+                    cid_by_name: dict[str, str] = {}
+                    for cid in _recent["ids"]:
+                        cf = clients_store.get(cid, include_html=False)
+                        if cf:
+                            biz_list.append(cf)
+                            cid_by_name[cf["name"]] = cid
+                    progress_pdf = st.progress(0.0, text="Generando PDFs…")
+
+                    def _bulk_pdf_cb(done: int, total: int, last_name: str):
+                        progress_pdf.progress(
+                            done / total,
+                            text=f"{done}/{total} · último: {last_name}",
+                        )
+
+                    try:
+                        zip_path, pdf_results = generate_pdf_proposals_batch(
+                            biz_list, progress_cb=_bulk_pdf_cb,
+                        )
+                        progress_pdf.empty()
+                        # Persistir pdf_path por cliente (para que el botón
+                        # individual de Descargar PDF en Mis clientes funcione).
+                        for r in pdf_results:
+                            if r["ok"] and r.get("pdf_path"):
+                                cid = cid_by_name.get(r["name"])
+                                if cid:
+                                    clients_store.update(cid, pdf_path=r["pdf_path"])
+                        n_ok = sum(1 for r in pdf_results if r["ok"])
+                        n_fail = len(pdf_results) - n_ok
+                        st.session_state["bulk_pdf_zip"] = {
+                            "bytes": zip_path.read_bytes(),
+                            "size": zip_path.stat().st_size,
+                            "results": pdf_results,
+                        }
+                        st.toast(
+                            f"📄 {n_ok} PDFs listos"
+                            + (f" · {n_fail} fallaron" if n_fail else ""),
+                            icon="📄",
+                        )
+                        _refresh()
+                    except Exception as e:
+                        progress_pdf.empty()
+                        logger.exception("Bulk PDF generation falló")
+                        st.error(f"Error al generar PDFs: {e}")
+            with ac2:
                 if st.button(
                     f"🚀 Pre-cargar {len(_recent['ids'])} en Automatización",
                     use_container_width=True,
@@ -1977,14 +2038,38 @@ with tab_export:
                         "Pre-cargado · cambia a la pestaña 🔄 Automatización arriba",
                         icon="🚀",
                     )
-            with ac2:
+            with ac3:
                 if st.button(
                     "Cerrar esta lista",
                     use_container_width=True,
                     key="bulk_dismiss",
                 ):
                     st.session_state["bulk_just_saved"] = None
+                    st.session_state["bulk_pdf_zip"] = None
                     st.rerun()
+
+            # Download del zip de PDFs si ya se generaron
+            _bulk_pdf_zip = st.session_state.get("bulk_pdf_zip")
+            if _bulk_pdf_zip and _bulk_pdf_zip.get("bytes"):
+                st.markdown("")
+                st.download_button(
+                    f"⬇️ Descargar zip de propuestas PDF "
+                    f"({_bulk_pdf_zip['size'] // 1024} KB)",
+                    data=_bulk_pdf_zip["bytes"],
+                    file_name=f"propuestas_pdf_{date.today().strftime('%Y%m%d')}.zip",
+                    mime="application/zip",
+                    use_container_width=True,
+                    key="dl_bulk_pdf_zip",
+                )
+                with st.expander("📋 Ver detalle de los PDFs generados"):
+                    for r in _bulk_pdf_zip["results"]:
+                        icon = "✅" if r["ok"] else "❌"
+                        extra = (
+                            f" · `{r['pdf_filename']}`"
+                            if r["ok"]
+                            else f" · {r['error']}"
+                        )
+                        st.write(f"{icon} {r['name']}{extra}")
 
         st.markdown("---")
         st.markdown("### Resumen rápido")
