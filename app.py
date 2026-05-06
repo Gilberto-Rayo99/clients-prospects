@@ -1261,6 +1261,15 @@ with tab_export:
                 "paquetes solo traerán el prompt sin imágenes a medida. "
                 "Saca tu key gratis en https://aistudio.google.com/apikey y añádela a Secrets / `.env`."
             )
+            with st.expander("🔍 Diagnóstico de Secrets (debug)"):
+                st.json(config.secrets_diagnostic())
+                st.caption(
+                    "Si `st_secrets_top_keys` muestra `['GEMINI_API_KEY', ...]` pero "
+                    "`gemini_via_secret_fn` es `false`, el valor está vacío o tiene "
+                    "comillas/espacios extra. El formato correcto en Streamlit Cloud "
+                    "Secrets es exactamente:\n\n"
+                    "`GEMINI_API_KEY = \"AIza...\"` (sin punto y coma, sin espacios alrededor del =)"
+                )
 
         from core import images as _img_mod
 

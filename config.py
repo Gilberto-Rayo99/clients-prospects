@@ -15,26 +15,96 @@ load_dotenv()
 # ============================================================
 # En Streamlit Cloud, las keys del panel "Secrets" viven en `st.secrets` pero
 # NO siempre se inyectan automáticamente a `os.environ` antes de que este
-# módulo lea los valores con `os.getenv`. Resultado: GEMINI_API_KEY queda
-# vacío aunque esté configurado en Secrets. La fix: si Streamlit está
-# disponible y `st.secrets` tiene contenido, copiarlo a `os.environ` ahora.
+# módulo lea los valores con `os.getenv`. Soportamos:
+#   - flat:           GEMINI_API_KEY = "abc"
+#   - nested:         [secrets]\n  GEMINI_API_KEY = "abc"
+# Iteramos un nivel de anidación por si el usuario puso una sección.
+_SECRETS_LOADED: dict[str, str] = {}
+
+
 def _hydrate_env_from_streamlit_secrets() -> None:
     try:
         import streamlit as st  # type: ignore
     except Exception:
-        return  # No corremos en Streamlit, nada que hacer
+        return
     try:
-        # `st.secrets` lanza si no hay archivo de secrets configurado;
-        # tratamos cualquier excepción como "no hay secrets disponibles".
         for k in list(st.secrets.keys()):
             v = st.secrets[k]
-            if isinstance(v, (str, int, float, bool)) and not os.environ.get(k):
-                os.environ[k] = str(v)
+            if isinstance(v, (str, int, float, bool)):
+                _SECRETS_LOADED[k] = str(v)
+                if not os.environ.get(k):
+                    os.environ[k] = str(v)
+            else:
+                # Posible sección anidada (Mapping). Intentar iterar sus keys.
+                try:
+                    for sk in list(v.keys()):
+                        sv = v[sk]
+                        if isinstance(sv, (str, int, float, bool)):
+                            _SECRETS_LOADED[sk] = str(sv)
+                            if not os.environ.get(sk):
+                                os.environ[sk] = str(sv)
+                except Exception:
+                    pass
     except Exception:
         pass
 
 
 _hydrate_env_from_streamlit_secrets()
+
+
+def _secret(name: str, default: str = "") -> str:
+    """Lee un secret con prioridad: os.environ → st.secrets (flat o nested).
+
+    Robusto contra el caso en que `st.secrets` no estuvo disponible al cargar
+    config (la rehidratación de arriba quedó vacía). Cada llamada vuelve a
+    intentarlo, así que un acceso tardío sí ve los secrets.
+    """
+    v = os.environ.get(name, "").strip()
+    if v:
+        return v
+    if name in _SECRETS_LOADED:
+        return _SECRETS_LOADED[name].strip()
+    # Reintento en caliente por si st.secrets aparece después
+    try:
+        import streamlit as st  # type: ignore
+
+        try:
+            sv = st.secrets[name]
+            if isinstance(sv, (str, int, float, bool)):
+                return str(sv).strip()
+        except Exception:
+            pass
+        # nested
+        try:
+            for k in list(st.secrets.keys()):
+                section = st.secrets[k]
+                try:
+                    sv = section[name]
+                    if isinstance(sv, (str, int, float, bool)):
+                        return str(sv).strip()
+                except Exception:
+                    continue
+        except Exception:
+            pass
+    except Exception:
+        pass
+    return default
+
+
+def secrets_diagnostic() -> dict:
+    """Devuelve qué keys está viendo el config — útil para debug en UI."""
+    info = {
+        "loaded_from_secrets": sorted(_SECRETS_LOADED.keys()),
+        "env_has_gemini": bool(os.environ.get("GEMINI_API_KEY", "").strip()),
+        "gemini_via_secret_fn": bool(_secret("GEMINI_API_KEY")),
+    }
+    try:
+        import streamlit as st  # type: ignore
+
+        info["st_secrets_top_keys"] = sorted(list(st.secrets.keys()))
+    except Exception as e:
+        info["st_secrets_top_keys"] = f"<unavailable: {e}>"
+    return info
 
 
 # ===== Paths =====
@@ -48,17 +118,17 @@ for _d in (LANDINGS_DIR, EXCEL_DIR, PDF_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 # ===== API Keys =====
-GOOGLE_PLACES_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY", "").strip()
-OUTSCRAPER_API_KEY = os.getenv("OUTSCRAPER_API_KEY", "").strip()
-HUNTER_API_KEY = os.getenv("HUNTER_API_KEY", "").strip()
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-NETLIFY_API_TOKEN = os.getenv("NETLIFY_API_TOKEN", "").strip()
-APP_PASSWORD = os.getenv("APP_PASSWORD", "").strip()
+GOOGLE_PLACES_API_KEY = _secret("GOOGLE_PLACES_API_KEY")
+OUTSCRAPER_API_KEY = _secret("OUTSCRAPER_API_KEY")
+HUNTER_API_KEY = _secret("HUNTER_API_KEY")
+GEMINI_API_KEY = _secret("GEMINI_API_KEY")
+NETLIFY_API_TOKEN = _secret("NETLIFY_API_TOKEN")
+APP_PASSWORD = _secret("APP_PASSWORD")
 
 # ===== Supabase =====
-SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
-SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "").strip()
-SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "").strip()
+SUPABASE_URL = _secret("SUPABASE_URL")
+SUPABASE_ANON_KEY = _secret("SUPABASE_ANON_KEY")
+SUPABASE_SERVICE_KEY = _secret("SUPABASE_SERVICE_KEY")
 
 # ===== Agencia =====
 AGENCY_NAME = os.getenv("AGENCY_NAME", "RAIO Development")
@@ -261,4 +331,4 @@ def setup_logging(level: int = logging.INFO) -> None:
 
 def has_key(name: str) -> bool:
     """Devuelve True si la API key dada está configurada (no vacía)."""
-    return bool(os.getenv(name, "").strip())
+    return bool(_secret(name))
