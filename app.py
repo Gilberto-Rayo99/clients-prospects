@@ -1271,20 +1271,7 @@ with tab_export:
                         st.error(f"Error: {e}")
 
         with col_e2:
-            if st.button("📄 Generar PDFs de todos", use_container_width=True):
-                progress = st.progress(0, text="Generando PDFs...")
-                ok, fail = 0, 0
-                for i, c in enumerate(all_clients, start=1):
-                    try:
-                        pdf_path = generate_pdf_proposal(c, c.get("landing_path"))
-                        clients_store.update(c["id"], pdf_path=pdf_path)
-                        ok += 1
-                    except Exception:
-                        logger.exception("Falló PDF para %s", c.get("name"))
-                        fail += 1
-                    progress.progress(i / len(all_clients), text=f"{i}/{len(all_clients)}")
-                progress.empty()
-                st.success(f"✅ {ok} PDFs generados en `{config.PDF_DIR}`" + (f" ({fail} fallaron)" if fail else ""))
+            st.caption("Para PDFs en lote con filtros, usa la sección de abajo.")
 
         st.markdown("---")
         st.markdown("### 🔢 Recalcular scores")
@@ -1314,6 +1301,191 @@ with tab_export:
                 msg += f" · {failed} fallaron"
             st.success(msg)
             _refresh()
+
+        # ============================================================
+        # 📄 Propuestas PDF en lote
+        # ============================================================
+        st.markdown("---")
+        st.markdown("### 📄 Propuestas PDF en lote")
+        st.caption(
+            "Genera un PDF de propuesta para cada cliente filtrado y los empaqueta "
+            "en un zip. Cada PDF incluye QR a la landing publicada (si existe), "
+            "PageSpeed (si lo analizaste), beneficios por giro y precio cotizado del cliente."
+        )
+
+        from core.score import _is_real_website as _is_real_web_pdf
+
+        _all_estados_pdf = sorted({c.get("estado") or "Pendiente" for c in all_clients})
+        _all_cats_pdf = sorted({(c.get("category") or "Otros") for c in all_clients})
+
+        # Fila 1: estado + categoría
+        pdf_f1, pdf_f2 = st.columns(2)
+        with pdf_f1:
+            _estados_pdf = st.multiselect(
+                "Estado",
+                options=_all_estados_pdf,
+                default=_all_estados_pdf,
+                key="pdf_estados_filter",
+            )
+        with pdf_f2:
+            _cats_pdf = st.multiselect(
+                "Categoría",
+                options=_all_cats_pdf,
+                default=[],
+                key="pdf_cats_filter",
+                placeholder="Todas",
+            )
+
+        # Fila 2: score + web + email
+        pdf_f3, pdf_f4, pdf_f5 = st.columns([1, 2, 1])
+        with pdf_f3:
+            _min_score_pdf = st.slider(
+                "Score mínimo",
+                min_value=1, max_value=10, value=1,
+                key="pdf_score_filter",
+            )
+        with pdf_f4:
+            _web_pdf = st.selectbox(
+                "Web",
+                options=["Todos", "Sin web", "Web desactualizada", "Con web propia"],
+                index=0,
+                key="pdf_web_filter",
+            )
+        with pdf_f5:
+            _email_pdf = st.selectbox(
+                "Email",
+                options=["Todos", "Con email", "Sin email"],
+                index=0,
+                key="pdf_email_filter",
+            )
+
+        # Fila 3: solo con landing publicada (los que el QR tiene sentido)
+        pdf_f6, pdf_f7 = st.columns(2)
+        with pdf_f6:
+            _solo_con_landing_pub = st.checkbox(
+                "Solo con landing publicada (QR funcional)",
+                value=False,
+                key="pdf_only_published",
+                help="Filtra a los que tienen netlify_url. Sin landing, el PDF muestra preview genérico sin QR.",
+            )
+        with pdf_f7:
+            _order_pdf = st.selectbox(
+                "Ordenar",
+                options=["Score ↓", "Más recientes", "Nombre"],
+                index=0,
+                key="pdf_order_filter",
+            )
+
+        # Aplicar filtros
+        _clientes_pdf = list(all_clients)
+        _clientes_pdf = [c for c in _clientes_pdf if (c.get("estado") or "Pendiente") in _estados_pdf]
+        if _cats_pdf:
+            _clientes_pdf = [c for c in _clientes_pdf if (c.get("category") or "Otros") in _cats_pdf]
+        _clientes_pdf = [c for c in _clientes_pdf if (c.get("score") or 0) >= _min_score_pdf]
+
+        if _web_pdf == "Sin web":
+            _clientes_pdf = [c for c in _clientes_pdf if not c.get("website")]
+        elif _web_pdf == "Web desactualizada":
+            _clientes_pdf = [c for c in _clientes_pdf if c.get("website") and not _is_real_web_pdf(c.get("website"))]
+        elif _web_pdf == "Con web propia":
+            _clientes_pdf = [c for c in _clientes_pdf if c.get("website") and _is_real_web_pdf(c.get("website"))]
+
+        if _email_pdf == "Con email":
+            _clientes_pdf = [c for c in _clientes_pdf if c.get("email")]
+        elif _email_pdf == "Sin email":
+            _clientes_pdf = [c for c in _clientes_pdf if not c.get("email")]
+
+        if _solo_con_landing_pub:
+            _clientes_pdf = [c for c in _clientes_pdf if c.get("netlify_url")]
+
+        if _order_pdf == "Score ↓":
+            _clientes_pdf.sort(key=lambda c: c.get("score") or 0, reverse=True)
+        elif _order_pdf == "Más recientes":
+            _clientes_pdf.sort(key=lambda c: c.get("fecha_modificado") or "", reverse=True)
+        else:
+            _clientes_pdf.sort(key=lambda c: (c.get("name") or "").lower())
+
+        col_pdf1, col_pdf2 = st.columns(2)
+        col_pdf1.metric("Filtrados", f"{len(_clientes_pdf)}/{len(all_clients)}")
+        col_pdf2.metric("Se procesarán", len(_clientes_pdf))
+
+        if _clientes_pdf:
+            with st.expander(f"Ver vista previa de los {len(_clientes_pdf)} a incluir"):
+                for i, c in enumerate(_clientes_pdf[:15], 1):
+                    qr_mark = "📱 con QR" if c.get("netlify_url") else "—"
+                    st.caption(
+                        f"{i}. **{c['name']}** · score {c.get('score', '—')} · "
+                        f"{c.get('category', '')} · {c.get('estado', '')} · {qr_mark}"
+                    )
+                if len(_clientes_pdf) > 15:
+                    st.caption(f"… y {len(_clientes_pdf) - 15} más.")
+
+        _pdf_lote_state_key = "pdf_lote_result"
+        _pdf_disabled = (len(_clientes_pdf) == 0)
+        if st.button(
+            f"📄 Generar {len(_clientes_pdf)} PDFs de propuesta"
+            if not _pdf_disabled else "Sin clientes filtrados",
+            use_container_width=True,
+            disabled=_pdf_disabled,
+            type="primary",
+            key="btn_pdf_lote",
+        ):
+            from export.pdf_proposal import generate_pdf_proposals_batch
+            progress_bar = st.progress(0.0, text="Generando PDFs…")
+            status_box = st.empty()
+
+            def _pdf_cb(done: int, total: int, last_name: str):
+                progress_bar.progress(
+                    done / total,
+                    text=f"{done}/{total} PDFs · último: {last_name}",
+                )
+
+            try:
+                final_path, pdf_results = generate_pdf_proposals_batch(
+                    _clientes_pdf, progress_cb=_pdf_cb,
+                )
+                progress_bar.empty()
+                # Guardar pdf_path en cada cliente exitoso
+                for r in pdf_results:
+                    if r["ok"] and r.get("pdf_path"):
+                        # Buscar el cliente por nombre (los results no tienen id)
+                        for c in _clientes_pdf:
+                            if c.get("name") == r["name"]:
+                                clients_store.update(c["id"], pdf_path=r["pdf_path"])
+                                break
+                n_ok = sum(1 for r in pdf_results if r["ok"])
+                n_fail = len(pdf_results) - n_ok
+                status_box.success(
+                    f"✅ {n_ok} PDFs generados"
+                    + (f" · {n_fail} fallaron" if n_fail else "")
+                )
+                st.session_state[_pdf_lote_state_key] = {
+                    "bytes": final_path.read_bytes(),
+                    "size": final_path.stat().st_size,
+                    "results": pdf_results,
+                }
+            except Exception as e:
+                progress_bar.empty()
+                logger.exception("Falló generate_pdf_proposals_batch")
+                status_box.error(f"Error: {e}")
+
+        _pdf_lote = st.session_state.get(_pdf_lote_state_key)
+        if _pdf_lote and _pdf_lote.get("bytes"):
+            st.download_button(
+                f"⬇️ Descargar zip de propuestas ({_pdf_lote['size'] // 1024} KB)",
+                data=_pdf_lote["bytes"],
+                file_name=f"propuestas_pdf_{date.today().strftime('%Y%m%d')}.zip",
+                mime="application/zip",
+                use_container_width=True,
+                key="dl_pdf_lote",
+            )
+            with st.expander("📋 Ver detalle del lote"):
+                for r in _pdf_lote["results"]:
+                    icon = "✅" if r["ok"] else "❌"
+                    extra = f" · `{r['pdf_filename']}`" if r["ok"] else f" · {r['error']}"
+                    st.write(f"{icon} {r['name']}{extra}")
+        else:
+            st.caption("ℹ️ Click en **Generar PDFs** primero — el botón de descarga aparecerá aquí.")
 
         # ============================================================
         # 📋 Prompts en lote (un .txt por cliente, en zip plano)

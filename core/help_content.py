@@ -4,6 +4,11 @@ HELP_SECTIONS = [
     {
         "title": "🆕 Novedades de este release",
         "content": """
+**C. 📄 Propuestas PDF rediseñadas + lote**
+- El PDF de propuesta ahora es **mucho más profesional**: hero con rating en estrellas grandes, bloque de diagnóstico cuantificado (PageSpeed cacheado si lo analizaste), QR a la landing publicada (si tiene netlify_url), beneficios por giro, precio cotizado del cliente.
+- **Si tienes URL Netlify para el cliente**, el PDF lleva un QR escaneable — el prospecto saca el celular, escanea, ve la demo. Impacto enorme en visitas presenciales.
+- Pestaña **📤 Exportar → 📄 Propuestas PDF en lote** con los mismos filtros que prompts (estado, categoría, score, web, email) + filtro extra "Solo con landing publicada (QR funcional)". Genera N PDFs en un zip plano.
+
 **B. 📲 Cierre de ciclo en bulk upload**
 - Después de **💾 Guardar N landings** en la carga masiva aparece una lista **"📲 Listos para mandar"** con cada cliente recién cargado.
 - Cada fila trae: estado actual + URL Netlify + botón **📲 WhatsApp** (con plantilla y URL ya rellenadas) + ✅ para marcar como enviado en un click.
