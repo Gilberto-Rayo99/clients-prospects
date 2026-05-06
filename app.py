@@ -488,8 +488,14 @@ with tab_search:
             with f3:
                 hide_saved = st.checkbox(
                     "Ocultar guardados",
-                    value=False,
+                    value=True,
                     key="local_hide_saved",
+                    help=(
+                        "Por default oculta TODOS los negocios que ya guardaste como "
+                        "cliente, en cualquier estado. Útil para que al rebuscar la "
+                        "misma zona solo veas los nuevos. Desmárcalo si quieres ver "
+                        "el panorama completo (incluyendo los que ya tienes)."
+                    ),
                 )
             f4, f5, f6, f7 = st.columns(4)
             with f4:
