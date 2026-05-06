@@ -1838,13 +1838,37 @@ with tab_export:
             _cnames = ["— Sin asignar —"] + [c["name"] for c in _clist]
             _cid_map = {c["name"]: c["id"] for c in _clist}
 
+            # ===== Dedup por nombre de archivo (case-insensitive) =====
+            # Si subes 2× el mismo filename, ignoramos el segundo en adelante
+            # y avisamos al usuario para que pueda renombrar/quitar antes de guardar.
+            seen_names: dict[str, object] = {}
+            dedup_files = []
+            duplicate_files: list[tuple] = []  # (uf descartado, uf que se quedó)
+            for uf in bulk_files:
+                norm = uf.name.lower().strip()
+                if norm in seen_names:
+                    duplicate_files.append((uf, seen_names[norm]))
+                else:
+                    seen_names[norm] = uf
+                    dedup_files.append(uf)
+
+            if duplicate_files:
+                st.warning(
+                    f"⚠️ Detecté **{len(duplicate_files)} archivo(s) con nombre duplicado**. "
+                    "Solo se procesa la primera ocurrencia de cada nombre. "
+                    "Si querías procesar versiones distintas, **renómbralas** y vuelve a subir."
+                )
+                with st.expander("Ver archivos duplicados ignorados"):
+                    for dup, kept in duplicate_files:
+                        st.caption(f"❌ `{dup.name}` (ignorado · ya estaba `{kept.name}`)")
+
             # Auto-confirmar matches ≥85% (umbral alto = pocos falsos positivos).
             # Los <85% sí se muestran para revisión manual.
             AUTO_CONFIRM_THRESHOLD = 0.85
             auto_assigned: list[tuple] = []   # (uf, cliente_name)  — fuera de UI
             ambiguous: list[tuple] = []       # (uf, best_name, score) — pide revisión
 
-            for uf in bulk_files:
+            for uf in dedup_files:
                 best, score = _fuzzy_match_client(uf.name, _clist)
                 if best and score is not None and score >= AUTO_CONFIRM_THRESHOLD:
                     auto_assigned.append((uf, best["name"], score))
@@ -1913,6 +1937,31 @@ with tab_export:
                     if selected != "— Sin asignar —":
                         confirmed.append((uf, selected))
 
+            # ===== Pre-validación: detectar varios archivos al mismo cliente =====
+            # Aunque los filenames sean distintos, si ambos hacen fuzzy match
+            # al mismo cliente, el segundo sobrescribiría al primero.
+            # Procesamos solo el primero de cada cid y avisamos.
+            _multi_to_same: dict[str, list[tuple]] = {}
+            for uf, cname in confirmed:
+                cid = _cid_map.get(cname)
+                if cid:
+                    _multi_to_same.setdefault(cid, []).append((uf, cname))
+            _conflicts = [(cid, lst) for cid, lst in _multi_to_same.items() if len(lst) > 1]
+            if _conflicts:
+                st.warning(
+                    f"⚠️ Detecté **{len(_conflicts)} cliente(s) con múltiples archivos** "
+                    "asignados. Solo se guardará el primero de cada uno. "
+                    "Revisa la asignación arriba y deja **— Sin asignar —** los que no quieras procesar."
+                )
+                with st.expander("Ver conflictos"):
+                    for cid, lst in _conflicts:
+                        cname = lst[0][1]
+                        kept_name = lst[0][0].name
+                        st.caption(f"**{cname}** ← `{kept_name}` (se guarda)")
+                        for uf, _ in lst[1:]:
+                            st.caption(f"&nbsp;&nbsp;&nbsp;&nbsp;❌ `{uf.name}` (ignorado)",
+                                       unsafe_allow_html=True)
+
             n_ok = len(confirmed)
             if st.button(
                 f"💾 Guardar {n_ok} landing(s)" + (" + publicar" if _bulk_autopub else ""),
@@ -1923,11 +1972,17 @@ with tab_export:
             ):
                 saved_ok, saved_fail, pub_ok, pub_fail = 0, 0, 0, 0
                 saved_ids: list[str] = []
+                _processed_cids: set[str] = set()
                 for uf, cname in confirmed:
                     cid = _cid_map.get(cname)
                     if not cid:
                         saved_fail += 1
                         continue
+                    if cid in _processed_cids:
+                        # Ya guardamos otro archivo para este cliente en este lote.
+                        # Skip silencioso (el warning ya se mostró arriba).
+                        continue
+                    _processed_cids.add(cid)
                     html_text = uf.read().decode("utf-8", errors="replace")
                     clients_store.save_landing_html(cid, html_text)
                     saved_ok += 1
