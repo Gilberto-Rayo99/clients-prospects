@@ -935,12 +935,17 @@ with tab_clients:
                     pkg_state_key = f"landing_pkg_{sel_id}"
 
                     if not config.GEMINI_API_KEY:
-                        st.warning(
-                            "🔑 No detecto `GEMINI_API_KEY`. El paquete sigue funcionando "
-                            "pero el zip solo traerá el prompt (con instrucciones de Unsplash, "
-                            "sin imágenes a medida). Saca tu key gratis en "
-                            "https://aistudio.google.com/apikey y añádela a Secrets / `.env`."
+                        st.info(
+                            "ℹ️ Sin `GEMINI_API_KEY`. El paquete se genera con prompt+Unsplash "
+                            "(sin imágenes a medida). Para fotos generadas necesitas key + "
+                            "**paid tier** en https://aistudio.google.com/ → Settings → Plan. "
+                            "Costo: ~$0.039 USD/img × 8 imgs = ~$0.31 USD por paquete."
                         )
+                    # Si ya hay un error reciente de cuota, mostrarlo
+                    from core import images as _img_mod_indiv
+                    _last_err_indiv = _img_mod_indiv.last_error()
+                    if _last_err_indiv and "cuota" in _last_err_indiv.lower():
+                        st.error(f"⚠️ {_last_err_indiv}")
 
                     # Botón "Generar" SIEMPRE visible (incluso sin key — devolverá zip
                     # sin imágenes pero con el prompt v2). Layout en stack (no columnas)
@@ -1256,10 +1261,10 @@ with tab_export:
         st.markdown("### 📦 Paquetes premium en lote (con imágenes Gemini)")
 
         if not config.GEMINI_API_KEY:
-            st.warning(
-                "🔑 No detecto `GEMINI_API_KEY`. El lote sigue funcionando, pero los "
-                "paquetes solo traerán el prompt sin imágenes a medida. "
-                "Saca tu key gratis en https://aistudio.google.com/apikey y añádela a Secrets / `.env`."
+            st.info(
+                "ℹ️ Sin `GEMINI_API_KEY`. El lote genera prompts con instrucciones "
+                "de Unsplash (sin fotos a medida). Para fotos generadas: key + "
+                "**paid tier** en https://aistudio.google.com/ (~$0.039/img)."
             )
             with st.expander("🔍 Diagnóstico de Secrets (debug)"):
                 st.json(config.secrets_diagnostic())

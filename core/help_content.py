@@ -4,10 +4,11 @@ HELP_SECTIONS = [
     {
         "title": "🆕 Novedades de este release",
         "content": """
-**1. Imágenes a medida con Gemini Nano Banana**
-- Cada landing puede llevar **8 fotos generadas a medida** del giro real del negocio (no Unsplash genérico).
-- **Cuota gratis: 100 imágenes/día**, configurable con `GEMINI_API_KEY` (sácala en https://aistudio.google.com/apikey).
-- El contador se persiste en Supabase → no se pierde aunque reinicien el servidor.
+**1. Imágenes a medida con Gemini Nano Banana (opcional, paid tier)**
+- Cada landing puede llevar **8 fotos generadas a medida** del giro real del negocio.
+- ⚠️ `gemini-2.5-flash-image` **NO está en free tier** (Google cambió las reglas). Costo: **~$0.039 USD/img × 8 = ~$0.31/paquete**.
+- Para activarlo: https://aistudio.google.com/ → Settings → Plan → Upgrade. Sin upgrade la app cae a Unsplash automáticamente.
+- Si solo quieres landings sin fotos a medida, **deja la key vacía** y todo funciona con Unsplash.
 
 **2. Lote en paralelo**
 - Pestaña Exportar → "📦 Paquetes premium en lote" genera **hasta 10 paquetes en paralelo** (1-3 min para 10 clientes).

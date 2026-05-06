@@ -240,6 +240,11 @@ def _business_dir(business: dict) -> Path:
 # ============================================================
 # Llamada real a Gemini
 # ============================================================
+class _QuotaExhausted(Exception):
+    """Marker para que `generate_business_images` aborte el paquete entero
+    al primer 429 (en vez de spamear 8 llamadas iguales)."""
+
+
 # Cache del último error para que la UI pueda mostrarlo si todo el lote
 # devolvió 0 imágenes.
 _LAST_ERROR: Optional[str] = None
@@ -278,9 +283,27 @@ def _gemini_generate_one(prompt: str, out_path: Path) -> bool:
             ),
         )
     except Exception as e:
-        msg = f"Gemini API falló ({type(e).__name__}): {e}"
+        # Detectar el caso "free tier limit: 0" → el modelo de imagen requiere
+        # paid tier. Marcarlo distinto para que el caller pueda abortar el
+        # paquete entero en vez de hacer 8 llamadas inútiles.
+        text = str(e)
+        is_quota = ("RESOURCE_EXHAUSTED" in text or "429" in text or
+                    "limit: 0" in text or "exceeded your current quota" in text.lower())
+        if is_quota:
+            msg = (
+                "Gemini bloqueado por cuota. `gemini-2.5-flash-image` NO está en "
+                "el free tier — requiere paid tier en AI Studio "
+                "(https://aistudio.google.com/ → Settings → Plan). Si no quieres "
+                "pagar, la app sigue funcionando con Unsplash como fallback."
+            )
+        else:
+            msg = f"Gemini API falló ({type(e).__name__}): {e}"
         _set_last_error(msg)
         logger.warning("%s [out=%s]", msg, out_path.name)
+        # Indicar al caller que es quota-error con un atributo en el path
+        # (truco simple para no cambiar la firma del retorno)
+        if is_quota:
+            raise _QuotaExhausted(msg) from e
         return False
 
     # Extraer imagen de la respuesta (puede venir en resp.parts o resp.candidates[0]…)
@@ -377,10 +400,23 @@ def generate_business_images(business: dict) -> Optional[dict[str, str]]:
 
     # Generar secuencialmente dentro del paquete
     fallos = 0
+    abortado_por_cuota = False
     for slot, scene, w, h in needed:
         prompt = _build_prompt(business, scene, w, h)
         path = biz_dir / f"{slot}.png"
-        ok = _gemini_generate_one(prompt, path)
+        try:
+            ok = _gemini_generate_one(prompt, path)
+        except _QuotaExhausted:
+            # Quota agotada del lado de Google → abortar el paquete.
+            # Devolver al cupo el slot actual + todos los que faltaban.
+            abortado_por_cuota = True
+            idx_actual = next(i for i, (s, *_) in enumerate(needed) if s == slot)
+            no_consumidas = len(needed) - idx_actual
+            release(no_consumidas)
+            logger.warning("Gemini abortó por cuota en slot=%s. Devuelvo %d al cupo.",
+                           slot, no_consumidas)
+            break
+
         if ok:
             result[slot] = f"{rel_base}/{slot}.png"
             logger.info("Gemini OK → %s/%s (uso hoy: %d/%d)",
@@ -392,7 +428,7 @@ def generate_business_images(business: dict) -> Optional[dict[str, str]]:
                            slot, business.get("name"))
 
     # Devolver al cupo las que reservé pero no consumí (fallos)
-    if fallos:
+    if fallos and not abortado_por_cuota:
         release(fallos)
 
     if not result:
