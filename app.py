@@ -274,6 +274,15 @@ def _saved_place_ids() -> set:
     return {c.get("place_id") for c in _clients() if c.get("place_id")}
 
 
+def _inactive_place_ids() -> set:
+    """Place IDs de clientes en estados terminales (Descartado/Cerrado/Sin teléfono).
+    Útil para no volver a mostrarlos en resultados de búsqueda en la misma zona."""
+    return {
+        c.get("place_id") for c in _clients()
+        if c.get("place_id") and c.get("estado") in config.INACTIVE_STATUSES
+    }
+
+
 def _fuzzy_match_client(filename: str, clients: list[dict]) -> tuple[dict | None, float]:
     """Encuentra el cliente cuyo nombre es más parecido al nombre del archivo HTML."""
     stem = re.sub(r"\.(html?|htm)$", "", filename, flags=re.IGNORECASE)
@@ -482,19 +491,34 @@ with tab_search:
                     value=False,
                     key="local_hide_saved",
                 )
-            f4, f5, f6 = st.columns(3)
+            f4, f5, f6, f7 = st.columns(4)
             with f4:
                 only_with_email = st.checkbox("Solo con email", key="local_email")
             with f5:
                 only_with_phone = st.checkbox("Solo con teléfono", key="local_phone")
             with f6:
                 only_no_web = st.checkbox("Solo sin web", key="local_no_web")
+            with f7:
+                hide_inactive = st.checkbox(
+                    "Ocultar descartados",
+                    value=True,
+                    key="local_hide_inactive",
+                    help=(
+                        "Por default oculta los negocios que ya guardaste con estado "
+                        "Descartado/Cerrado/Sin teléfono. Así no te aparecen otra vez "
+                        "al buscar la misma zona. Desmárcalo si quieres re-evaluarlos."
+                    ),
+                )
 
         # Aplicar filtros locales
+        _inactive_pids = _inactive_place_ids() if hide_inactive else set()
+
         def _matches(p: dict) -> bool:
             if min_score and (p.get("score") or 0) < min_score:
                 return False
             if hide_saved and p.get("place_id") in _saved_place_ids():
+                return False
+            if hide_inactive and p.get("place_id") in _inactive_pids:
                 return False
             if only_with_email and not p.get("email"):
                 return False
@@ -813,9 +837,26 @@ with tab_clients:
                 index=0,
             )
 
+        # Toggle "Mostrar inactivos" — por default oculta Descartado/Cerrado/Sin teléfono
+        show_inactive = st.checkbox(
+            "Mostrar descartados / cerrados / sin teléfono",
+            value=False,
+            key="clients_show_inactive",
+            help=(
+                "Por defecto se ocultan los clientes en estados terminales "
+                "(Descartado, Cerrado, Sin teléfono) para enfocarte en el flujo activo. "
+                "Marca este checkbox si los necesitas ver."
+            ),
+        )
+
         filtered = list(all_clients)
+        # Si el usuario seleccionó estados explícitos, respetarlo aunque sean
+        # inactivos. Si no seleccionó nada y "Mostrar inactivos" está OFF,
+        # filtrarlos automáticamente.
         if filter_estado:
             filtered = [c for c in filtered if c.get("estado") in filter_estado]
+        elif not show_inactive:
+            filtered = [c for c in filtered if c.get("estado") not in config.INACTIVE_STATUSES]
         filtered = [c for c in filtered if (c.get("score") or 0) >= filter_score]
 
         if filter_web == "Sin web":
@@ -1363,6 +1404,7 @@ with tab_export:
 
         _all_estados_pdf = sorted({c.get("estado") or "Pendiente" for c in all_clients})
         _all_cats_pdf = sorted({(c.get("category") or "Otros") for c in all_clients})
+        _default_estados_pdf = [e for e in _all_estados_pdf if e not in config.INACTIVE_STATUSES]
 
         # Fila 1: estado + categoría
         pdf_f1, pdf_f2 = st.columns(2)
@@ -1370,8 +1412,9 @@ with tab_export:
             _estados_pdf = st.multiselect(
                 "Estado",
                 options=_all_estados_pdf,
-                default=_all_estados_pdf,
+                default=_default_estados_pdf,
                 key="pdf_estados_filter",
+                help="Por default excluye Descartado/Cerrado/Sin teléfono.",
             )
         with pdf_f2:
             _cats_pdf = st.multiselect(
@@ -1569,15 +1612,22 @@ with tab_export:
         _all_estados = sorted({c.get("estado") or "Pendiente" for c in all_clients})
         _all_cats_pkg = sorted({(c.get("category") or "Otros") for c in all_clients})
 
+        # Default: estados activos (excluyendo terminales). El usuario
+        # puede marcarlos manualmente si quiere incluir descartados/etc.
+        _default_estados_pkg = [e for e in _all_estados if e not in config.INACTIVE_STATUSES]
+
         # Fila 1: estado + categoría
         pf1, pf2 = st.columns(2)
         with pf1:
             _estados_pkg = st.multiselect(
                 "Estado",
                 options=_all_estados,
-                default=_all_estados,
+                default=_default_estados_pkg,
                 key="pkg_estados_filter",
-                help="Solo se incluirán los clientes con uno de estos estados.",
+                help=(
+                    "Por default excluye Descartado/Cerrado/Sin teléfono. "
+                    "Agrégalos manualmente si necesitas regenerar prompts para ellos."
+                ),
             )
         with pf2:
             _cats_pkg = st.multiselect(

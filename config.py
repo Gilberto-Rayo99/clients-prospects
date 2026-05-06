@@ -301,6 +301,15 @@ PIPELINE_STAGES = [
 
 PIPELINE_STAGE_NAMES = [s[0] for s in PIPELINE_STAGES]
 
+# Estados "inactivos" — cliente fuera del flujo de prospección activa.
+# Por default se excluyen de:
+#   - Banner de follow-ups (no tiene sentido recordar a un descartado)
+#   - Filtros de "Mis clientes" (a menos que marques "Mostrar descartados")
+#   - Lotes de prompts/PDFs (no quieres mandar campañas a quien dijo no)
+#   - Resultados de búsqueda en la misma zona (evita ofrecerlos otra vez)
+# El usuario los puede mostrar manualmente con los toggles correspondientes.
+INACTIVE_STATUSES: set[str] = {"Descartado", "Cerrado", "Sin teléfono"}
+
 
 # ============================================================
 # Datos del usuario (consultor / dueño de la agencia)

@@ -44,11 +44,21 @@ def get_pending(clients: list[dict]) -> list[dict]:
       - days: int — días sin actividad
       - template: Optional[str] — plantilla WhatsApp sugerida
       - priority: int — 1 (recordatorio agendado), 2 (urgente), 3 (rezagado)
+
+    Los estados terminales (Descartado, Cerrado, Sin teléfono) se excluyen
+    aunque tengan fecha_proximo_contacto vencida — no tiene sentido
+    recordarte de un cliente que ya dijo no.
     """
+    import config
+
     pending: list[dict] = []
     today = date.today()
 
     for c in clients:
+        # Saltar terminales — no requieren follow-up
+        if c.get("estado") in config.INACTIVE_STATUSES:
+            continue
+
         # 1) Recordatorio explícito (fecha_proximo_contacto vencida)
         prox_iso = c.get("fecha_proximo_contacto")
         if prox_iso:

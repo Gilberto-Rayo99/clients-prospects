@@ -4,6 +4,13 @@ HELP_SECTIONS = [
     {
         "title": "🆕 Novedades de este release",
         "content": """
+**E. ❌ Estados inactivos quedan fuera del flujo activo**
+Ahora `Descartado`, `Cerrado` y `Sin teléfono` se consideran "estados terminales" y por default:
+- **No aparecen en el banner de follow-ups** (aunque tengan recordatorio vencido).
+- **No aparecen en Mis clientes** — hay un checkbox **"Mostrar descartados / cerrados / sin teléfono"** (default OFF) si los necesitas ver.
+- **No se incluyen en lotes** (prompts, PDFs) — el multiselect de estado por default los excluye. Los puedes seleccionar manualmente para regenerar prompts/PDFs antiguos.
+- **No aparecen en búsqueda de prospectos** — al buscar una zona repetida, los negocios que ya guardaste como Descartado/Cerrado/Sin teléfono se ocultan automáticamente. Hay un checkbox **"Ocultar descartados"** (default ON) en los filtros locales.
+
 **D. 🎯 Diversificar por nicho en lotes (prompts y PDFs)**
 - Tanto en "📋 Prompts en lote" como en "📄 PDFs en lote" hay un nuevo checkbox **"🎯 Diversificar por nicho — top N por categoría"**.
 - Al activarlo, en lugar de exportar 10 prompts del mismo giro, te da **uno (o N) por categoría disponible** — el de mayor score dentro de cada nicho.
