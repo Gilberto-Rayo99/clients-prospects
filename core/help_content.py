@@ -4,6 +4,12 @@ HELP_SECTIONS = [
     {
         "title": "🆕 Novedades de este release",
         "content": """
+**D. 🎯 Diversificar por nicho en lotes (prompts y PDFs)**
+- Tanto en "📋 Prompts en lote" como en "📄 PDFs en lote" hay un nuevo checkbox **"🎯 Diversificar por nicho — top N por categoría"**.
+- Al activarlo, en lugar de exportar 10 prompts del mismo giro, te da **uno (o N) por categoría disponible** — el de mayor score dentro de cada nicho.
+- Útil para campañas balanceadas: probar mensaje con dentista + barbería + veterinaria + cafetería simultáneamente sin spamear un solo nicho.
+- Ej: tienes 30 clientes filtrados en 6 categorías → con N=1 te quedan 6 (uno mejor de cada). Con N=3 → 18 (los 3 mejores de cada).
+
 **C. 📄 Propuestas PDF rediseñadas + lote**
 - El PDF de propuesta ahora es **mucho más profesional**: hero con rating en estrellas grandes, bloque de diagnóstico cuantificado (PageSpeed cacheado si lo analizaste), QR a la landing publicada (si tiene netlify_url), beneficios por giro, precio cotizado del cliente.
 - **Si tienes URL Netlify para el cliente**, el PDF lleva un QR escaneable — el prospecto saca el celular, escanea, ve la demo. Impacto enorme en visitas presenciales.

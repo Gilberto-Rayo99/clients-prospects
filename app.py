@@ -73,6 +73,34 @@ st.session_state.setdefault("_clients_cache", None)
 # ============================================================
 # Helpers
 # ============================================================
+def _diversify_by_category(clients: list[dict], top_per_category: int) -> list[dict]:
+    """Toma los top N clientes por categoría según score (desc).
+
+    Útil para diversificar la prospección — en vez de mandar 10 prompts del
+    mismo giro, devuelve un mix con representación de cada nicho disponible.
+
+    Args:
+        clients: lista ya filtrada (por estado/score/etc.).
+        top_per_category: cuántos por categoría llevarse. 1 = uno de cada nicho.
+
+    Returns:
+        Nueva lista con (top_per_category × N_categorías) clientes como máximo.
+        Categorías sin clientes en la entrada simplemente no aparecen.
+    """
+    from collections import defaultdict
+    if top_per_category < 1:
+        return list(clients)
+    grouped: dict[str, list[dict]] = defaultdict(list)
+    for c in clients:
+        grouped[c.get("category") or "Otros"].append(c)
+    for cat in grouped:
+        grouped[cat].sort(key=lambda c: c.get("score") or 0, reverse=True)
+    out: list[dict] = []
+    for cat in sorted(grouped.keys()):
+        out.extend(grouped[cat][:top_per_category])
+    return out
+
+
 def _save_landing_and_optionally_publish(client_id: str, html: str, auto_publish: bool) -> None:
     """Guarda la landing y, si `auto_publish`, la sube a Netlify de un golpe.
 
@@ -1414,6 +1442,25 @@ with tab_export:
         if _solo_con_landing_pub:
             _clientes_pdf = [c for c in _clientes_pdf if c.get("netlify_url")]
 
+        # Diversidad por nicho
+        _diversify_pdf = st.checkbox(
+            "🎯 Diversificar por nicho — top N por categoría",
+            value=False,
+            key="pdf_diversify_check",
+            help=(
+                "Útil para preparar visitas mixtas: con N=1 obtienes un PDF "
+                "de cada nicho disponible (los de mayor score por categoría)."
+            ),
+        )
+        if _diversify_pdf:
+            _top_per_nicho_pdf = st.slider(
+                "Top por nicho",
+                min_value=1, max_value=10, value=1,
+                key="pdf_top_per_nicho",
+                help="1 = uno de cada categoría. 3 = los 3 mejores de cada categoría.",
+            )
+            _clientes_pdf = _diversify_by_category(_clientes_pdf, _top_per_nicho_pdf)
+
         if _order_pdf == "Score ↓":
             _clientes_pdf.sort(key=lambda c: c.get("score") or 0, reverse=True)
         elif _order_pdf == "Más recientes":
@@ -1600,6 +1647,26 @@ with tab_export:
 
         if _solo_sin_landing:
             _clientes_pkg = [c for c in _clientes_pkg if not c.get("landing_path")]
+
+        # Diversidad por nicho — checkbox + slider
+        _diversify_pkg = st.checkbox(
+            "🎯 Diversificar por nicho — top N por categoría",
+            value=False,
+            key="pkg_diversify_check",
+            help=(
+                "Útil para no mandar varios prompts del mismo giro. "
+                "Al activarlo, agrupa por categoría y toma los N de mayor score "
+                "de cada una. Ej: con N=1 obtienes un cliente diferente por cada nicho."
+            ),
+        )
+        if _diversify_pkg:
+            _top_per_nicho_pkg = st.slider(
+                "Top por nicho",
+                min_value=1, max_value=10, value=1,
+                key="pkg_top_per_nicho",
+                help="1 = uno de cada categoría. 3 = los 3 mejores de cada categoría.",
+            )
+            _clientes_pkg = _diversify_by_category(_clientes_pkg, _top_per_nicho_pkg)
 
         # Orden
         if _order_pkg == "Score ↓":
