@@ -1983,6 +1983,12 @@ with tab_export:
                         # Skip silencioso (el warning ya se mostró arriba).
                         continue
                     _processed_cids.add(cid)
+                    # seek(0) para evitar que un UploadedFile reusado de un
+                    # render previo devuelva bytes vacíos (read() consume el buffer).
+                    try:
+                        uf.seek(0)
+                    except Exception:
+                        pass
                     html_text = uf.read().decode("utf-8", errors="replace")
                     clients_store.save_landing_html(cid, html_text)
                     saved_ok += 1
@@ -1990,6 +1996,7 @@ with tab_export:
 
                     if _bulk_autopub and config.NETLIFY_API_TOKEN:
                         try:
+                            import time as _time
                             from core import netlify as _netlify
                             cli_obj = clients_store.get(cid, include_html=False) or {}
                             res = _netlify.publish_html(
@@ -2003,6 +2010,9 @@ with tab_export:
                                 netlify_deploy_at=datetime.now().isoformat(timespec="seconds"),
                             )
                             pub_ok += 1
+                            # Throttle suave para no saturar el rate limit del
+                            # token de Netlify cuando son muchos seguidos.
+                            _time.sleep(0.5)
                         except Exception:
                             logger.exception("Bulk auto-publish falló para %s", cname)
                             pub_fail += 1
@@ -2048,9 +2058,9 @@ with tab_export:
                 with rcol2:
                     nurl = cli.get("netlify_url") or ""
                     if nurl:
-                        st.markdown(f"🌐 [Netlify]({nurl})")
+                        st.markdown(f"✅ [Netlify]({nurl})")
                     else:
-                        st.caption("⚠️ sin URL Netlify")
+                        st.markdown(":red[❌ Sin publicar]")
                 with rcol3:
                     if cli.get("phone"):
                         # Plantilla por defecto según contexto
@@ -2073,6 +2083,90 @@ with tab_export:
                         clients_store.update(cid, estado="Mensaje enviado")
                         st.toast(f"✅ {cli['name']}", icon="📤")
                         _refresh()
+
+            # ===== Acción especial: publicar pendientes en Netlify =====
+            # Útil cuando: (a) no marcaste auto-publish la primera vez, o
+            # (b) algunos publishes fallaron por rate limit en el lote inicial.
+            # Toma cada cliente del recent batch SIN netlify_url, lee su HTML
+            # de la DB (no del file_uploader) y publica.
+            _pendientes_pub = []
+            if config.NETLIFY_API_TOKEN:
+                for _cid in _recent["ids"]:
+                    _ctmp = clients_store.get(_cid, include_html=False)
+                    if _ctmp and not _ctmp.get("netlify_url"):
+                        _pendientes_pub.append(_cid)
+
+            if _pendientes_pub:
+                st.warning(
+                    f"⚠️ {len(_pendientes_pub)} de los {len(_recent['ids'])} clientes "
+                    "**no tienen URL Netlify todavía** (auto-publish desactivado o "
+                    "fallo previo). Publícalos antes de generar PDFs para que el "
+                    "QR funcione."
+                )
+                if st.button(
+                    f"🔁 Publicar pendientes en Netlify ({len(_pendientes_pub)})",
+                    use_container_width=True,
+                    type="primary",
+                    key="bulk_publish_missing",
+                    help=(
+                        "Lee el HTML guardado de cada uno y lo publica en Netlify. "
+                        "Throttle 0.5s entre llamadas para no saturar rate limit."
+                    ),
+                ):
+                    import time as _time_pub
+                    from core import netlify as _net_pub
+                    progress_pub = st.progress(0.0, text="Publicando…")
+                    pub_results: list[dict] = []
+                    for i, _cid in enumerate(_pendientes_pub, start=1):
+                        # Trae el HTML completo (incluye landing_html)
+                        cli_full = clients_store.get(_cid, include_html=True)
+                        if not cli_full or not cli_full.get("landing_html"):
+                            pub_results.append({
+                                "name": cli_full.get("name") if cli_full else _cid,
+                                "ok": False,
+                                "error": "Sin HTML guardado en DB",
+                            })
+                            progress_pub.progress(i / len(_pendientes_pub))
+                            continue
+                        try:
+                            res = _net_pub.publish_html(
+                                cli_full["landing_html"],
+                                cli_full.get("name", ""),
+                                site_id=cli_full.get("netlify_site_id"),
+                            )
+                            clients_store.update(
+                                _cid,
+                                netlify_url=res["url"],
+                                netlify_site_id=res["site_id"],
+                                netlify_deploy_at=datetime.now().isoformat(timespec="seconds"),
+                            )
+                            pub_results.append({
+                                "name": cli_full["name"], "ok": True, "url": res["url"],
+                            })
+                        except Exception as e:
+                            logger.exception("Re-publish falló para %s", cli_full.get("name"))
+                            pub_results.append({
+                                "name": cli_full.get("name", _cid),
+                                "ok": False,
+                                "error": str(e)[:200],
+                            })
+                        progress_pub.progress(
+                            i / len(_pendientes_pub),
+                            text=f"{i}/{len(_pendientes_pub)} · último: {cli_full.get('name', '')}",
+                        )
+                        # Throttle suave para no saturar Netlify
+                        _time_pub.sleep(0.5)
+                    progress_pub.empty()
+                    n_ok = sum(1 for r in pub_results if r["ok"])
+                    n_fail = len(pub_results) - n_ok
+                    if n_ok:
+                        st.success(f"✅ {n_ok} publicados en Netlify")
+                    if n_fail:
+                        with st.expander(f"❌ {n_fail} fallaron — ver detalle"):
+                            for r in pub_results:
+                                if not r["ok"]:
+                                    st.caption(f"❌ **{r['name']}** — {r['error']}")
+                    _refresh()
 
             # Acciones del lote
             st.markdown("")

@@ -4,6 +4,13 @@ HELP_SECTIONS = [
     {
         "title": "🆕 Novedades de este release",
         "content": """
+**F. 🔁 Recuperación de Netlify cuando algo falla**
+Si subes el lote sin marcar **🚀 Auto-publicar** o si Netlify rechaza algunos publishes por rate limit, ya no necesitas re-subir los archivos. En el panel **"📲 Listos para mandar"**:
+- Cada fila marca con ❌ rojo "Sin publicar" los que faltan (antes solo decía "⚠️ sin URL").
+- Aparece automáticamente un botón **"🔁 Publicar pendientes en Netlify (N)"** que lee el HTML guardado de la DB y publica solo los que faltan, con throttle de 0.5s entre llamadas para no saturar rate limit.
+- Reporta resultado por cliente con expander de errores si los hay.
+- Después puedes generar PDFs con el QR ya funcional.
+
 **E. ❌ Estados inactivos quedan fuera del flujo activo**
 Ahora `Descartado`, `Cerrado` y `Sin teléfono` se consideran "estados terminales" y por default:
 - **No aparecen en el banner de follow-ups** (aunque tengan recordatorio vencido).
