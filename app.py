@@ -101,6 +101,80 @@ def _diversify_by_category(clients: list[dict], top_per_category: int) -> list[d
     return out
 
 
+def _publish_pending_netlify(client_ids: list[str], progress_cb=None) -> list[dict]:
+    """Publica en Netlify los clientes que tienen landing_html pero no netlify_url.
+
+    Lee el HTML directo de la DB (no del file_uploader) — sirve para
+    recuperar publicaciones desde cualquier punto: post-bulk, banner
+    persistente en Mis clientes, etc.
+
+    Args:
+        client_ids: lista de cids a evaluar. Solo se publican los que
+            cumplen la condición (tienen HTML y no tienen URL).
+        progress_cb: callable(done, total, name) opcional.
+
+    Returns:
+        Lista de dicts {name, ok, url|error, skipped (bool)}.
+        skipped=True cuando el cliente no cumplía la condición o no tenía HTML.
+    """
+    import time as _time_pub
+    from core import netlify as _net_pub
+
+    results: list[dict] = []
+    pending = []
+    for cid in client_ids:
+        cli = clients_store.get(cid, include_html=True)
+        if not cli:
+            continue
+        if cli.get("netlify_url"):
+            results.append({
+                "name": cli.get("name", cid), "ok": True, "skipped": True,
+                "url": cli["netlify_url"], "reason": "ya publicado",
+            })
+            continue
+        if not cli.get("landing_html"):
+            results.append({
+                "name": cli.get("name", cid), "ok": False, "skipped": True,
+                "error": "Sin HTML guardado en DB",
+            })
+            continue
+        pending.append(cli)
+
+    total = len(pending)
+    for i, cli in enumerate(pending, start=1):
+        cid = cli["id"]
+        try:
+            res = _net_pub.publish_html(
+                cli["landing_html"],
+                cli.get("name", ""),
+                site_id=cli.get("netlify_site_id"),
+            )
+            clients_store.update(
+                cid,
+                netlify_url=res["url"],
+                netlify_site_id=res["site_id"],
+                netlify_deploy_at=datetime.now().isoformat(timespec="seconds"),
+            )
+            results.append({
+                "name": cli["name"], "ok": True, "skipped": False, "url": res["url"],
+            })
+        except Exception as e:
+            logger.exception("Publish Netlify falló para %s", cli.get("name"))
+            results.append({
+                "name": cli.get("name", cid), "ok": False, "skipped": False,
+                "error": str(e)[:200],
+            })
+        if progress_cb:
+            try:
+                progress_cb(i, total, cli.get("name", ""))
+            except Exception:
+                pass
+        # Throttle suave para no pegar rate limit del token
+        _time_pub.sleep(0.5)
+
+    return results
+
+
 def _save_landing_and_optionally_publish(client_id: str, html: str, auto_publish: bool) -> None:
     """Guarda la landing y, si `auto_publish`, la sube a Netlify de un golpe.
 
@@ -798,6 +872,62 @@ with tab_clients:
                 if len(_pending_fu) > 15:
                     st.caption(f"… y {len(_pending_fu) - 15} más. Filtra por estado abajo para verlos.")
             st.markdown("---")
+
+        # ---- 🔁 Banner persistente: clientes con HTML sin publicar a Netlify ----
+        # Sobrevive reboots y otros bulk uploads — lee del DB cada vez.
+        if config.NETLIFY_API_TOKEN:
+            _pending_pub = [
+                c for c in all_clients
+                if c.get("landing_path") and not c.get("netlify_url")
+                and c.get("estado") not in config.INACTIVE_STATUSES
+            ]
+            if _pending_pub:
+                with st.expander(
+                    f"🔁 **{len(_pending_pub)} cliente(s) con landing sin publicar en Netlify** — "
+                    "click para publicar todos",
+                    expanded=False,
+                ):
+                    st.caption(
+                        "Estos clientes ya tienen el HTML guardado en la DB pero "
+                        "todavía no se publicó la URL pública (probablemente olvidaste "
+                        "marcar Auto-publicar, o falló por rate limit). Click en el "
+                        "botón de abajo y se publican todos en serie con throttle de 0.5s."
+                    )
+                    for c in _pending_pub[:15]:
+                        st.caption(
+                            f"• **{c['name']}** · {c.get('category', '')} · {c.get('estado', '')}"
+                        )
+                    if len(_pending_pub) > 15:
+                        st.caption(f"… y {len(_pending_pub) - 15} más.")
+
+                    if st.button(
+                        f"🚀 Publicar los {len(_pending_pub)} en Netlify",
+                        type="primary",
+                        use_container_width=True,
+                        key="banner_publish_all",
+                    ):
+                        progress_b = st.progress(0.0, text="Publicando…")
+
+                        def _b_cb(done: int, total: int, last_name: str):
+                            progress_b.progress(
+                                done / total,
+                                text=f"{done}/{total} · último: {last_name}",
+                            )
+
+                        _ids_to_pub = [c["id"] for c in _pending_pub]
+                        _b_results = _publish_pending_netlify(_ids_to_pub, progress_cb=_b_cb)
+                        progress_b.empty()
+                        n_ok = sum(1 for r in _b_results if r["ok"] and not r.get("skipped"))
+                        n_fail = sum(1 for r in _b_results if not r["ok"])
+                        if n_ok:
+                            st.success(f"✅ {n_ok} publicados en Netlify")
+                        if n_fail:
+                            with st.expander(f"❌ {n_fail} fallaron — ver detalle"):
+                                for r in _b_results:
+                                    if not r["ok"]:
+                                        st.caption(f"❌ **{r['name']}** — {r.get('error', '?')}")
+                        _refresh()
+            st.markdown("")
 
         # ---- Filtros ----
         from core.score import _is_real_website  # heurística compartida
@@ -2113,59 +2243,25 @@ with tab_export:
                         "Throttle 0.5s entre llamadas para no saturar rate limit."
                     ),
                 ):
-                    import time as _time_pub
-                    from core import netlify as _net_pub
                     progress_pub = st.progress(0.0, text="Publicando…")
-                    pub_results: list[dict] = []
-                    for i, _cid in enumerate(_pendientes_pub, start=1):
-                        # Trae el HTML completo (incluye landing_html)
-                        cli_full = clients_store.get(_cid, include_html=True)
-                        if not cli_full or not cli_full.get("landing_html"):
-                            pub_results.append({
-                                "name": cli_full.get("name") if cli_full else _cid,
-                                "ok": False,
-                                "error": "Sin HTML guardado en DB",
-                            })
-                            progress_pub.progress(i / len(_pendientes_pub))
-                            continue
-                        try:
-                            res = _net_pub.publish_html(
-                                cli_full["landing_html"],
-                                cli_full.get("name", ""),
-                                site_id=cli_full.get("netlify_site_id"),
-                            )
-                            clients_store.update(
-                                _cid,
-                                netlify_url=res["url"],
-                                netlify_site_id=res["site_id"],
-                                netlify_deploy_at=datetime.now().isoformat(timespec="seconds"),
-                            )
-                            pub_results.append({
-                                "name": cli_full["name"], "ok": True, "url": res["url"],
-                            })
-                        except Exception as e:
-                            logger.exception("Re-publish falló para %s", cli_full.get("name"))
-                            pub_results.append({
-                                "name": cli_full.get("name", _cid),
-                                "ok": False,
-                                "error": str(e)[:200],
-                            })
+
+                    def _pub_cb(done: int, total: int, last_name: str):
                         progress_pub.progress(
-                            i / len(_pendientes_pub),
-                            text=f"{i}/{len(_pendientes_pub)} · último: {cli_full.get('name', '')}",
+                            done / total,
+                            text=f"{done}/{total} · último: {last_name}",
                         )
-                        # Throttle suave para no saturar Netlify
-                        _time_pub.sleep(0.5)
+
+                    pub_results = _publish_pending_netlify(_pendientes_pub, progress_cb=_pub_cb)
                     progress_pub.empty()
-                    n_ok = sum(1 for r in pub_results if r["ok"])
-                    n_fail = len(pub_results) - n_ok
+                    n_ok = sum(1 for r in pub_results if r["ok"] and not r.get("skipped"))
+                    n_fail = sum(1 for r in pub_results if not r["ok"])
                     if n_ok:
                         st.success(f"✅ {n_ok} publicados en Netlify")
                     if n_fail:
                         with st.expander(f"❌ {n_fail} fallaron — ver detalle"):
                             for r in pub_results:
                                 if not r["ok"]:
-                                    st.caption(f"❌ **{r['name']}** — {r['error']}")
+                                    st.caption(f"❌ **{r['name']}** — {r.get('error', '?')}")
                     _refresh()
 
             # Acciones del lote

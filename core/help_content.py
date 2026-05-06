@@ -4,12 +4,17 @@ HELP_SECTIONS = [
     {
         "title": "🆕 Novedades de este release",
         "content": """
-**F. 🔁 Recuperación de Netlify cuando algo falla**
-Si subes el lote sin marcar **🚀 Auto-publicar** o si Netlify rechaza algunos publishes por rate limit, ya no necesitas re-subir los archivos. En el panel **"📲 Listos para mandar"**:
-- Cada fila marca con ❌ rojo "Sin publicar" los que faltan (antes solo decía "⚠️ sin URL").
-- Aparece automáticamente un botón **"🔁 Publicar pendientes en Netlify (N)"** que lee el HTML guardado de la DB y publica solo los que faltan, con throttle de 0.5s entre llamadas para no saturar rate limit.
+**F. 🔁 Recuperación persistente de Netlify (en Mis clientes)**
+Si subes un lote sin marcar **🚀 Auto-publicar** o si Netlify rechaza algunos publishes por rate limit, ya no necesitas re-subir los archivos. **En la pestaña 👥 Mis clientes** verás un expander persistente:
+
+> **🔁 N cliente(s) con landing sin publicar en Netlify**
+
+- Sobrevive reboots y otros bulk uploads (lee de la DB cada vez, no del cache de la sesión).
+- Lista los clientes pendientes y trae un botón **"🚀 Publicar los N en Netlify"** que los procesa todos en serie con throttle de 0.5s.
 - Reporta resultado por cliente con expander de errores si los hay.
-- Después puedes generar PDFs con el QR ya funcional.
+- Excluye automáticamente clientes en estados terminales (Descartado/Cerrado/Sin teléfono).
+
+El botón equivalente sigue disponible en el panel inline **"📲 Listos para mandar"** del bulk upload — útil para acción inmediata. Pero si cierras esa lista o reinicias, usa el banner de Mis clientes.
 
 **E. ❌ Estados inactivos quedan fuera del flujo activo**
 Ahora `Descartado`, `Cerrado` y `Sin teléfono` se consideran "estados terminales" y por default:
